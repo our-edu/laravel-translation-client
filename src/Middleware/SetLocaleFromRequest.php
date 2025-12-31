@@ -48,6 +48,10 @@ class SetLocaleFromRequest
             return $request->user()->getLocale();
         }
 
+        if ($request->route() && $request->route()->hasParameter('language')) {
+            return $request->route()->parameter('language');
+        }
+
         return null;
     }
 
