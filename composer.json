@@ -2,6 +2,7 @@
     "name": "ouredu/laravel-translation-client",
     "description": "Laravel client package for consuming centralized translation service",
     "type": "library",
+    "version": "1.0.0",
     "keywords": [
         "laravel",
         "translation",
