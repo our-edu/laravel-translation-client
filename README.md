@@ -1,7 +1,7 @@
 # Laravel Translation Client
 
-[![Latest Version](https://img.shields.io/packagist/v/ouredu/laravel-translation-client.svg)](https://packagist.org/packages/ouredu/laravel-translation-client)
-[![License](https://img.shields.io/packagist/l/ouredu/laravel-translation-client.svg)](LICENSE)
+[![Latest Version](https://img.shields.io/packagist/v/our-edu/laravel-translation-client.svg)](https://packagist.org/packages/our-edu/laravel-translation-client)
+[![License](https://img.shields.io/packagist/l/our-edu/laravel-translation-client.svg)](LICENSE)
 
 A Laravel package for consuming centralized translation services. This package replaces Laravel's file-based translation loader with an API-based loader that fetches translations from a remote translation service.
 
