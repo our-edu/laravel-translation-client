@@ -50,7 +50,7 @@ TRANSLATION_CLIENT=backend
 
 ### 4. Configure Available Locales
 
-In `config/app.php`, add:
+In `config/translation-client.php`, add:
 
 ```php
 'available_locales' => ['en', 'ar', 'fr'],
