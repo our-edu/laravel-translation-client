@@ -341,7 +341,6 @@ class TranslationClient
                 if (is_array($value)) {
                     $finalValue = $value; // API will JSON encode it
                 }
-                dump($this->tenantUuid);
                 $result[] = [
                     'tenant_uuid' => $this->tenantUuid,
                     'locale' => $locale,
