@@ -89,6 +89,19 @@ return [
         'enabled' => env('TRANSLATION_LOGGING', false),
         'channel' => env('TRANSLATION_LOG_CHANNEL', 'stack'),
     ],
+    
+     /*
+    |--------------------------------------------------------------------------
+    | Available Locales
+    |--------------------------------------------------------------------------
+    |
+    | The list of available locales to sync translations for
+    |
+    */
+    'available_locales' => [
+        'ar',
+        'en',
+    ],
 ];
 ```
 
