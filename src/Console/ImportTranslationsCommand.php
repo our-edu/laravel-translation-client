@@ -7,14 +7,17 @@ namespace OurEdu\TranslationClient\Console;
 use Illuminate\Console\Command;
 use OurEdu\TranslationClient\Services\TranslationClient;
 
+use OurEdu\TranslationClient\Jobs\ImportTranslationsJob;
+
 class ImportTranslationsCommand extends Command
 {
     /**
      * The name and signature of the console command.
      */
-    protected $signature = 'translations:import 
+    protected $signature = 'translations:import
                             {--locale= : Specific locale to import (optional)}
-                            {--path= : Path to lang directory (optional, defaults to lang_path())}';
+                            {--path= : Path to lang directory (optional, defaults to lang_path())}
+                            {--queue : Whether to handle the import in a queue job}';
 
     /**
      * The console command description.
@@ -26,10 +29,30 @@ class ImportTranslationsCommand extends Command
      */
     public function handle(TranslationClient $client): int
     {
+        $langPath = $this->option('path') ?? lang_path();
+
+        if ($this->option('queue')) {
+            $this->info('Dispatching translation import jobs to queue...');
+
+            // Get locales to import
+            $locales = $this->getLocalesToImport($langPath);
+
+            if (empty($locales)) {
+                $this->error('No locales found to import.');
+                return self::FAILURE;
+            }
+
+            foreach ($locales as $locale) {
+                ImportTranslationsJob::dispatch($locale, $langPath);
+                $this->line("   Job dispatched for locale: {$locale}");
+            }
+
+            $this->info('All jobs dispatched successfully.');
+            return self::SUCCESS;
+        }
+
         $this->info('Importing translations to Translation Service...');
         $this->newLine();
-
-        $langPath = $this->option('path') ?? lang_path();
 
         if (!is_dir($langPath)) {
             $this->error("Lang directory not found: {$langPath}");
