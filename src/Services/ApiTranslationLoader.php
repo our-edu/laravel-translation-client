@@ -64,6 +64,12 @@ class ApiTranslationLoader implements LoaderContract
         $prefixedApiGroup = $this->appNamePrefix ? "{$this->appNamePrefix}:{$apiGroup}" : $apiGroup;
         $result = $translations[$prefixedApiGroup] ?? [];
 
+
+        // Fallback to Laravel files if API result is empty
+        if (empty($result)) {
+            return $this->loadFromFiles($locale, $group, $namespace) ?? [];
+        }
+
         // Cache in memory
         $this->loaded[$cacheKey] = $result;
 
@@ -174,5 +180,23 @@ class ApiTranslationLoader implements LoaderContract
                 $current = &$current[$k];
             }
         }
+    }
+
+    private function loadFromFiles($locale, $group, $namespace = null): array
+    {
+        $path = $this->path;
+
+        if ($namespace && $namespace !== '*') {
+            $path = $this->namespaces[$namespace] ?? $path;
+            $filePath = "{$path}/{$locale}/{$group}.php";
+        } else {
+            $filePath = "{$path}/{$locale}/{$group}.php";
+        }
+
+        if ($this->files->exists($filePath)) {
+            return require $filePath;
+        }
+
+        return [];
     }
 }
