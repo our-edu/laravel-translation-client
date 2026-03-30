@@ -47,7 +47,9 @@ class TranslationClient
         $client = $client ?? $this->client;
         $cacheKey = $this->getManifestCacheKey($locale, $client);
 
-        return $this->cache()->remember($cacheKey, $this->manifestTtl, function () use ($locale, $client) {
+        return $this->cache()
+            ->tags(['translations', "locale:{$locale}"])
+            ->remember($cacheKey, $this->manifestTtl, function () use ($locale, $client) {
             try {
                 $this->log('info', "Fetching manifest for locale: {$locale}, client: {$client}");
 
@@ -94,7 +96,7 @@ class TranslationClient
         $cacheKey = $this->getBundleCacheKey($locale, $prefixedGroups, $client, $format);
 
         // Check if we have a cached version
-        $cached = $this->cache()->get($cacheKey);
+        $cached = $this->cache()->tags(['translations', "locale:{$locale}"])->get($cacheKey);
         if ($cached) {
             // Verify version is still current
             $manifest = $this->checkVersion($locale, $client);
@@ -121,7 +123,7 @@ class TranslationClient
                 $data = $response->json();
 
                 // Cache the bundle
-                $this->cache()->put($cacheKey, $data, $this->bundleTtl);
+                $this->cache()->tags(['translations', "locale:{$locale}"])->put($cacheKey, $data, $this->bundleTtl);
 
                 $this->log('info', "Bundle fetched successfully", [
                     'count' => $data['count'] ?? 0,
@@ -174,21 +176,15 @@ class TranslationClient
      */
     public function clearCache(?string $locale = null): void
     {
-        $prefix = $this->appNamePrefix ? "{$this->appNamePrefix}:" : '';
-        
         if ($locale) {
             // Clear specific locale
-            $pattern = "{$prefix}translation:*:{$locale}:*";
             $this->log('info', "Clearing cache for locale: {$locale}");
+            $this->cache()->tags(['translations', "locale:{$locale}"])->flush();
         } else {
             // Clear all
-            $pattern = "{$prefix}translation:*";
             $this->log('info', "Clearing all translation caches");
+            $this->cache()->tags(['translations'])->flush();
         }
-
-        // Note: This is a simple implementation. For production, you might want
-        // to use cache tags or a more sophisticated approach
-        $this->cache()->flush();
     }
 
     /**
