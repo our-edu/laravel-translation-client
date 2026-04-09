@@ -17,11 +17,11 @@ class TenantResolver
      * 2. Config value (TRANSLATION_TENANT_UUID)
      * 3. First tenant from database (fallback)
      */
-    public static function resolve(): ?string
+    public static function resolve(): ?int
     {
         // 1. Try from authenticated user (if your app supports this)
-        if (auth()->check() && method_exists(auth()->user(), 'tenant_uuid')) {
-            return auth()->user()->tenant_uuid;
+        if (auth()->check() && method_exists(auth()->user(), 'tenant_id')) {
+            return auth()->user()->tenant_id;
         }
 
         // 3. Fallback: Get first tenant from a database
@@ -41,7 +41,7 @@ class TenantResolver
                     ->orderBy('created_at')
                     ->first();
 
-                return $tenant?->uuid ?? null;
+                return $tenant?->id ?? null;
             } catch (\Exception $e) {
                 // Table might not exist or query failed
                 return null;
@@ -52,8 +52,8 @@ class TenantResolver
     /**
      * Set tenant UUID dynamically (for multi-tenant apps)
      */
-    public static function setTenant(?string $tenantUuid): void
+    public static function setTenant(?string $tenantId): void
     {
-        config(['translation-client.tenant_uuid' => $tenantUuid]);
+        config(['translation-client.tenant_id' => $tenantId]);
     }
 }

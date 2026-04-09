@@ -2,24 +2,24 @@
 
 ## For Initial Setup (Recommended)
 
-**Don't set `TRANSLATION_TENANT_UUID` in `.env`**
+**Don't set `TRANSLATION_TENANT_ID` in `.env`**
 
 The package will automatically use the first tenant from your `tenants` table.
 
 ```env
 TRANSLATION_SERVICE_URL=http://translation-service
 TRANSLATION_APP_PREFIX=DOK
-# TRANSLATION_TENANT_UUID not set - auto-detects first tenant
+# TRANSLATION_TENANT_ID not set - auto-detects first tenant
 ```
 
 ---
 
 ## How It Works
 
-1. **Package checks** if `TRANSLATION_TENANT_UUID` is set in config
+1. **Package checks** if `TRANSLATION_TENANT_ID` is set in config
 2. **If not set**, queries database:
    ```sql
-   SELECT uuid FROM tenants ORDER BY created_at LIMIT 1
+   SELECT id FROM tenants ORDER BY created_at LIMIT 1
    ```
 3. **Caches result** for 1 hour
 
@@ -29,12 +29,12 @@ TRANSLATION_APP_PREFIX=DOK
 
 Your `tenants` table:
 
-| id | uuid | name | created_at |
-|----|------|------|------------|
-| 1 | school-1-uuid | School 1 | 2024-01-01 |
-| 2 | school-2-uuid | School 2 | 2024-01-02 |
+| id | name | created_at |
+|----|------|------------|
+| 1 | School 1 | 2024-01-01 |
+| 2 | School 2 | 2024-01-02 |
 
-**Package automatically uses**: `school-1-uuid`
+**Package automatically uses**: `1`
 
 ---
 
@@ -50,7 +50,7 @@ class SetTranslationTenant
     public function handle($request, Closure $next)
     {
         if (auth()->check()) {
-            TenantResolver::setTenant(auth()->user()->tenant_uuid);
+            TenantResolver::setTenant(auth()->user()->tenant_id);
         }
         return $next($request);
     }

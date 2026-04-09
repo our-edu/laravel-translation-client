@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Log;
 class TranslationClient
 {
     private string $baseUrl;
-    private ?string $tenantUuid;
+    private ?int $tenantId;
     private string $client;
     private ?string $appNamePrefix;
     private int $manifestTtl;
@@ -26,7 +26,7 @@ class TranslationClient
         $this->baseUrl = rtrim(config('translation-client.service_url'), '/');
         
         // Use TenantResolver to get tenant UUID with fallback
-        $this->tenantUuid = \OurEdu\TranslationClient\Helpers\TenantResolver::resolve();
+        $this->tenantId = \OurEdu\TranslationClient\Helpers\TenantResolver::resolve();
 //        dd($this->tenantUuid);
             
         $this->client = config('translation-client.client', 'backend');
@@ -55,7 +55,7 @@ class TranslationClient
 
                 $response = Http::timeout($this->httpTimeout)
                     ->get("{$this->baseUrl}/api/v1/translation/manifest", [
-                        'tenant' => $this->tenantUuid,
+                        'tenant' => $this->tenantId,
                         'locale' => $locale,
                         'client' => $client,
                     ]);
@@ -112,7 +112,7 @@ class TranslationClient
 
             $response = Http::timeout($this->httpTimeout)
                 ->get("{$this->baseUrl}/api/v1/translation", [
-                    'tenant' => $this->tenantUuid,
+                    'tenant' => $this->tenantId,
                     'locale' => $locale,
                     'groups' => $prefixedGroups ? implode(',', $prefixedGroups) : null,
                     'client' => $client,
@@ -256,7 +256,7 @@ class TranslationClient
         bool $isActive = true
     ): array {
         return $this->pushTranslations([[
-            'tenant_uuid' => $this->tenantUuid,
+            'tenant_id' => $this->tenantId,
             'locale' => $locale,
             'group' => $group,
             'key' => $key,
@@ -338,7 +338,7 @@ class TranslationClient
                     $finalValue = $value; // API will JSON encode it
                 }
                 $result[] = [
-                    'tenant_uuid' => $this->tenantUuid,
+                    'tenant_id' => $this->tenantId,
                     'locale' => $locale,
                     'group' => $this->prefixGroup($group), // Apply app name prefix
                     'key' => $fullKey,
@@ -383,7 +383,7 @@ class TranslationClient
      */
     private function getManifestCacheKey(string $locale, string $client): string
     {
-        $tenant = $this->tenantUuid ?? 'global';
+        $tenant = $this->tenantId ?? 'global';
         $prefix = $this->appNamePrefix ? "{$this->appNamePrefix}:" : '';
         return "{$prefix}translation:manifest:{$tenant}:{$locale}:{$client}";
     }
@@ -393,7 +393,7 @@ class TranslationClient
      */
     private function getBundleCacheKey(string $locale, ?array $groups, string $client, string $format): string
     {
-        $tenant = $this->tenantUuid ?? 'global';
+        $tenant = $this->tenantId ?? 'global';
         $groupsStr = $groups ? implode('-', $groups) : 'all';
         $prefix = $this->appNamePrefix ? "{$this->appNamePrefix}:" : '';
         return "{$prefix}translation:bundle:{$tenant}:{$locale}:{$groupsStr}:{$client}:{$format}";
@@ -405,7 +405,7 @@ class TranslationClient
     private function getDefaultManifest(string $locale, string $client): array
     {
         return [
-            'tenant' => $this->tenantUuid,
+            'tenant' => $this->tenantId,
             'locale' => $locale,
             'client' => $client,
             'version' => 1,

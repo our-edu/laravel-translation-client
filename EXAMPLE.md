@@ -254,8 +254,8 @@ class SetTenantTranslations
             ?? Tenant::where('subdomain', $request->getHost())->first();
 
         if ($tenant) {
-            // Dynamically set tenant UUID for translations
-            config(['translation-client.tenant_uuid' => $tenant->uuid]);
+            // Dynamically set tenant ID for translations
+            config(['translation-client.tenant_id' => $tenant->id]);
         }
 
         return $next($request);

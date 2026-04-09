@@ -293,7 +293,7 @@ For multi-tenant applications:
 
 ```php
 // Set tenant dynamically based on request
-config(['translation-client.tenant_uuid' => $currentTenant->uuid]);
+config(['translation-client.tenant_id' => $currentTenant->id]);
 
 // Or extend the TranslationClient
 class MultiTenantTranslationClient extends TranslationClient
