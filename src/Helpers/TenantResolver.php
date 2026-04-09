@@ -32,7 +32,7 @@ class TenantResolver
      * Get the first tenant UUID from database
      * Cached for 1 hour to avoid repeated queries
      */
-    public static function getFirstTenant(): ?string
+    public static function getFirstTenant(): ?int
     {
         return Cache::remember('translation_client:first_tenants', 3600, function () {
             try {
@@ -52,7 +52,7 @@ class TenantResolver
     /**
      * Set tenant UUID dynamically (for multi-tenant apps)
      */
-    public static function setTenant(?string $tenantId): void
+    public static function setTenant(?int $tenantId): void
     {
         config(['translation-client.tenant_id' => $tenantId]);
     }
