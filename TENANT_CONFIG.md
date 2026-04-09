@@ -298,7 +298,7 @@ Cache::forget('translation_client:first_tenant');
 
 **Check current tenant**:
 ```php
-dd(config('translation-client.tenant_uuid'));
+dd(config('translation-client.tenant_id'));
 ```
 
 **Check auto-detection**:

@@ -248,7 +248,7 @@ class ImportNamespacedTranslationsCommand extends Command
                 // Preserve arrays (indexed or translatable) as values
                 // API will JSON encode them automatically
                 $result[] = [
-                    'tenant_uuid' => TenantResolver::resolve(),
+                    'tenant_id' => TenantResolver::resolve(),
                     'locale' => $locale,
                     'group' => $finalGroup, // Apply app prefix here
                     'key' => $fullKey,

@@ -13,18 +13,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Tenant UUID
+    | Tenant ID
     |--------------------------------------------------------------------------
     |
-    | Your application's tenant UUID for multi-tenancy support
+    | Your application's tenant ID for multi-tenancy support
     | 
     | Options:
-    | - Set explicitly: TRANSLATION_TENANT_UUID=your-tenant-uuid
+    | - Set explicitly: TRANSLATION_TENANT_ID=your-tenant-id
     | - Leave empty: Auto-detects from first tenant in database
     | - null: Uses global translations (no tenant isolation)
     |
     */
-    'tenant_uuid' => env('TRANSLATION_TENANT_UUID'),
+    'tenant_id' => env('TRANSLATION_TENANT_ID'),
 
     /*
     |--------------------------------------------------------------------------
