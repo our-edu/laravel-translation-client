@@ -12,29 +12,29 @@ The package supports multiple tenant configuration strategies, from simple singl
 
 ### Configuration
 
-**Don't set** `TRANSLATION_TENANT_UUID` in `.env`:
+**Don't set** `TRANSLATION_TENANT_ID` in `.env`:
 
 ```env
 TRANSLATION_SERVICE_URL=http://translation-service
-# TRANSLATION_TENANT_UUID not set - will auto-detect
+# TRANSLATION_TENANT_ID not set - will auto-detect
 ```
 
 ### How It Works
 
 The package automatically:
-1. Checks config for `TRANSLATION_TENANT_UUID`
-2. If not set, queries database: `SELECT uuid FROM tenants ORDER BY created_at LIMIT 1`
+1. Checks config for `TRANSLATION_TENANT_ID`
+2. If not set, queries database: `SELECT id FROM tenants ORDER BY created_at LIMIT 1`
 3. Caches result for 1 hour
 
 ### Example
 
 ```php
 // Your tenants table:
-// id | uuid                  | name      | created_at
-// 1  | school-1-uuid         | School 1  | 2024-01-01
-// 2  | school-2-uuid         | School 2  | 2024-01-02
+// id | name      | created_at
+// 1  | School 1  | 2024-01-01
+// 2  | School 2  | 2024-01-02
 
-// Package automatically uses: school-1-uuid
+// Package automatically uses: 1
 ```
 
 ---
@@ -46,7 +46,7 @@ The package automatically:
 ### Configuration
 
 ```env
-TRANSLATION_TENANT_UUID=school-1-uuid
+TRANSLATION_TENANT_ID=1
 ```
 
 ### How It Works
@@ -68,9 +68,9 @@ Add to your `User` model:
 ```php
 class User extends Authenticatable
 {
-    public function tenant_uuid(): ?string
+    public function tenant_id(): ?string
     {
-        return $this->tenant?->uuid;
+        return $this->tenant?->id;
     }
 }
 ```
@@ -94,8 +94,8 @@ class SetTranslationTenant
     public function handle($request, Closure $next)
     {
         if (auth()->check()) {
-            $tenantUuid = auth()->user()->tenant?->uuid;
-            TenantResolver::setTenant($tenantUuid);
+            $tenantId = auth()->user()->tenant?->id;
+            TenantResolver::setTenant($tenantId);
         }
 
         return $next($request);
@@ -135,14 +135,14 @@ class SetTenantFromRequest
     public function handle($request, Closure $next)
     {
         // From header
-        $tenantUuid = $request->header('X-Tenant-UUID');
+        $tenantUuid = $request->header('X-Tenant-ID');
         
         // Or from subdomain
         $subdomain = $request->getHost();
         $tenant = Tenant::where('subdomain', $subdomain)->first();
-        $tenantUuid = $tenant?->uuid;
+        $tenantId = $tenant?->id;
 
-        TenantResolver::setTenant($tenantUuid);
+        TenantResolver::setTenant($tenantId);
 
         return $next($request);
     }
@@ -156,11 +156,11 @@ class SetTenantFromRequest
 ### Phase 1: Single Tenant (Now)
 
 ```env
-# Don't set TRANSLATION_TENANT_UUID
+# Don't set TRANSLATION_TENANT_ID
 # Auto-uses first tenant
 ```
 
-**Result**: All translations use first tenant UUID
+**Result**: All translations use first tenant ID
 
 ### Phase 2: Transition (Later)
 
@@ -168,7 +168,7 @@ Add middleware to detect tenant per user:
 
 ```php
 // Middleware sets tenant dynamically
-TenantResolver::setTenant($user->tenant_uuid);
+TenantResolver::setTenant($user->tenant_id);
 ```
 
 **Result**: Translations per user's tenant
@@ -179,7 +179,7 @@ Remove auto-detection, require explicit tenant:
 
 ```php
 // config/translation-client.php
-'tenant_uuid' => null, // Must be set via middleware
+'tenant_id' => null, // Must be set via middleware
 ```
 
 **Result**: Strict multi-tenant enforcement
@@ -218,7 +218,7 @@ if (auth()->user()->school_id === 1) {
 **Current State**: Single tenant for testing
 
 ```env
-TRANSLATION_TENANT_UUID=demo-tenant-uuid
+TRANSLATION_TENANT_ID=1
 ```
 
 **Future State**: Tenant per customer
@@ -226,7 +226,7 @@ TRANSLATION_TENANT_UUID=demo-tenant-uuid
 ```php
 // Middleware detects from subdomain
 $tenant = Tenant::where('subdomain', $request->getHost())->first();
-TenantResolver::setTenant($tenant->uuid);
+TenantResolver::setTenant($tenant->id);
 ```
 
 ---
@@ -245,7 +245,7 @@ $uuid = TenantResolver::resolve();
 $uuid = TenantResolver::getFirstTenant();
 
 // Set tenant dynamically
-TenantResolver::setTenant('school-1-uuid');
+TenantResolver::setTenant('1');
 ```
 
 ### Usage in Code
@@ -255,7 +255,7 @@ TenantResolver::setTenant('school-1-uuid');
 public function switchTenant($tenantId)
 {
     $tenant = Tenant::findOrFail($tenantId);
-    TenantResolver::setTenant($tenant->uuid);
+    TenantResolver::setTenant($tenant->id);
     
     // Now translations use this tenant
     return __('messages.welcome');
@@ -270,14 +270,14 @@ public function switchTenant($tenantId)
 
 Use auto-detection initially:
 ```env
-# No TRANSLATION_TENANT_UUID
+# No TRANSLATION_TENANT_ID
 ```
 
 ### 2. Add Middleware When Ready
 
 ```php
 // Set tenant per user
-TenantResolver::setTenant(auth()->user()->tenant_uuid);
+TenantResolver::setTenant(auth()->user()->tenant_id);
 ```
 
 ### 3. Cache Tenant Resolution
@@ -310,7 +310,7 @@ dd(TenantResolver::getFirstTenant());
 
 **Set explicitly**:
 ```php
-TenantResolver::setTenant('correct-tenant-uuid');
+TenantResolver::setTenant('correct-tenant-id');
 ```
 
 ---
