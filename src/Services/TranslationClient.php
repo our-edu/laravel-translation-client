@@ -130,7 +130,7 @@ class TranslationClient
                     'version' => $data['version'] ?? null,
                 ]);
 
-                return $data['data'];
+                return $data['data'] ?? [];
             }
 
             $this->log('error', 'Translation bundle fetch failed', [
@@ -141,7 +141,7 @@ class TranslationClient
             // Return stale cache if available and fallback is enabled
             if ($this->fallbackOnError && $cached) {
                 $this->log('warning', 'Using stale cache due to API failure');
-                return $cached['data'];
+                return $cached['data'] ?? [];
             }
 
             return [];
