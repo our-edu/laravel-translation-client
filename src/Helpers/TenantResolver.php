@@ -26,7 +26,7 @@ class TenantResolver
 
         // 2. Try Getting tenant value from config
         if ($tenantId = config('translation-client.tenant_id')) {
-            return $tenantId;
+            return (int) $tenantId;
         }
 
         // 3. Fallback: Get first tenant from a database
