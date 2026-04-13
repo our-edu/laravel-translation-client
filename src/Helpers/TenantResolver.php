@@ -34,7 +34,7 @@ class TenantResolver
      */
     public static function getFirstTenant(): ?int
     {
-        return Cache::remember('translation_client:first_tenants', 3600, function () {
+        $value = Cache::remember('translation_client:first_tenants', 3600, function () {
             try {
                 // Try to get first tenant from tenants table
                 $tenant = DB::table('tenants')
@@ -47,6 +47,7 @@ class TenantResolver
                 return null;
             }
         });
+        return $value !== null ? (int) $value : null;
     }
 
     /**
