@@ -19,9 +19,10 @@ class TenantResolver
      */
     public static function resolve(): ?int
     {
+        $user = auth()->user();
         // 1. Try from authenticated user (if your app supports this)
-        if (auth()->check() && method_exists(auth()->user(), 'tenant_id')) {
-            return auth()->user()->tenant_id;
+        if (auth()->check() && !is_null($user->tenant_id)) {
+            return (int) $user->tenant_id;
         }
 
         // 3. Fallback: Get first tenant from a database
