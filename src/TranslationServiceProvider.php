@@ -63,6 +63,19 @@ class TranslationServiceProvider extends ServiceProvider
 
             // Force re-resolve the translator to use new loader
             $this->app->forgetInstance('translator');
+            $translator = $this->app->make('translator');
+
+            //keep existing validator extentions , only swap its translator instance
+            if ($this->app->bound('validator')) {
+                $validatorFactory = $this->app->make('validator');
+                $ref = new \ReflectionClass($validatorFactory);
+
+                if ($ref->hasProperty('translator')) {
+                    $prop = $ref->getProperty('translator');
+                    $prop->setAccessible(true);
+                    $prop->setValue($validatorFactory, $translator);
+                }
+            }
         });
 
         // Auto-register namespaces from translation service
