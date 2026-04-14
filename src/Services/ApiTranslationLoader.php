@@ -16,7 +16,6 @@ class ApiTranslationLoader implements LoaderContract
     protected array $namespaces = [];
     protected Filesystem $files;
     protected string $path;
-    protected mixed $loadedVersion = null;
 
     public function __construct(Filesystem $files, string $path, TranslationClient $client)
     {
@@ -33,15 +32,12 @@ class ApiTranslationLoader implements LoaderContract
     {
         // Build cache key with app prefix
         $prefix = $this->appNamePrefix ? "{$this->appNamePrefix}:" : '';
-        $cacheKey = $namespace && $namespace !== '*'
-            ? "{$prefix}{$locale}.{$namespace}::{$group}"
+        $cacheKey = $namespace && $namespace !== '*' 
+            ? "{$prefix}{$locale}.{$namespace}::{$group}" 
             : "{$prefix}{$locale}.{$group}";
-
+            
         if (isset($this->loaded[$cacheKey])) {
-            if(!$this->isVersionStale($locale)){
-                return $this->loaded[$cacheKey];
-            }
-            $this->loaded = [];
+            return $this->loaded[$cacheKey];
         }
 
         // If locale was preloaded, return from memory or empty array
@@ -50,8 +46,8 @@ class ApiTranslationLoader implements LoaderContract
         }
 
         // For namespaced translations, use the namespace::group format
-        $apiGroup = $namespace && $namespace !== '*'
-            ? "{$namespace}::{$group}"
+        $apiGroup = $namespace && $namespace !== '*' 
+            ? "{$namespace}::{$group}" 
             : $group;
 
         // Fetch from API
@@ -151,7 +147,7 @@ class ApiTranslationLoader implements LoaderContract
         if ($locale) {
             $prefix = $this->appNamePrefix ? "{$this->appNamePrefix}:" : '';
             $pattern = "{$prefix}{$locale}.";
-
+            
             // Clear specific locale
             foreach (array_keys($this->loaded) as $key) {
                 if (str_starts_with($key, $pattern)) {
@@ -202,20 +198,5 @@ class ApiTranslationLoader implements LoaderContract
         }
 
         return [];
-    }
-
-    private function isVersionStale(string $locale): bool
-    {
-        $manifest = $this->client->checkVersion($locale);
-        $currentVersion = $manifest['version'] ?? null;
-        if($this->loadedVersion === null){
-            $this->loadedVersion = $currentVersion;
-            return false;
-        }
-        if($this->loadedVersion !== $currentVersion){
-            $this->loadedVersion = $currentVersion;
-            return true;
-        }
-        return false;
     }
 }
