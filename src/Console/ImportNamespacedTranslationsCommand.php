@@ -241,6 +241,10 @@ class ImportNamespacedTranslationsCommand extends Command
                     $this->flattenTranslations($value, $locale, $group, $fullKey)
                 );
             } else {
+
+                if($value === null || $value === '' || (is_array($value) && empty($value))) {
+                    continue;
+                }
                 // Apply app name prefix to group
                 $appPrefix = config('translation-client.app_name_prefix');
                 $finalGroup = $appPrefix ? "{$appPrefix}:{$group}" : $group;
