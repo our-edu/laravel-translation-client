@@ -79,11 +79,6 @@ class TranslationServiceProvider extends ServiceProvider
         if (config('translation-client.auto_register_namespaces', true)) {
             $this->registerNamespaces();
         }
-
-        // Preload translations if enabled
-        if (config('translation-client.preload', true)) {
-            $this->preloadTranslations();
-        }
     }
 
     /**
@@ -123,28 +118,4 @@ class TranslationServiceProvider extends ServiceProvider
         }
     }
 
-    /**
-     * Preload translations for the current locale
-     */
-    protected function preloadTranslations(): void
-    {
-        // Only preload in web/API contexts, not in console
-        // if ($this->app->runningInConsole()) {
-        //     return;
-        // }
-
-        try {
-            $locale = $this->app->getLocale();
-            $loader = $this->app->make('translation.loader');
-
-            if ($loader instanceof ApiTranslationLoader) {
-                $loader->preloadLocale($locale);
-            }
-        } catch (\Exception $e) {
-            // Silently fail - translations will be loaded on-demand
-            if (config('translation-client.logging.enabled', false)) {
-                \Log::warning('[TranslationClient] Failed to preload translations: ' . $e->getMessage());
-            }
-        }
-    }
 }

@@ -38,12 +38,6 @@ class ClearTranslationCacheCommand extends Command
             // Clear client cache
             $client->clearCache($locale);
 
-            // Clear loader memory cache
-            $loader = app('translation.loader');
-            if ($loader instanceof ApiTranslationLoader) {
-                $loader->clearLoaded($locale);
-            }
-
             $this->info('Translation cache cleared successfully!');
             return self::SUCCESS;
         } catch (\Exception $e) {

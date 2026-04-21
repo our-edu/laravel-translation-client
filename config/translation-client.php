@@ -28,17 +28,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Preload Translations
-    |--------------------------------------------------------------------------
-    |
-    | Whether to preload all translations on application boot
-    | Recommended for production to reduce API calls
-    |
-    */
-    'preload' => env('TRANSLATION_PRELOAD', true),
-
-    /*
-    |--------------------------------------------------------------------------
     | Cache TTL
     |--------------------------------------------------------------------------
     |

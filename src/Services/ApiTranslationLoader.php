@@ -10,8 +10,6 @@ use Illuminate\Filesystem\Filesystem;
 class ApiTranslationLoader implements LoaderContract
 {
     protected TranslationClient $client;
-    protected array $loaded = [];
-    protected bool $preloaded = false;
     protected ?string $appNamePrefix;
     protected array $namespaces = [];
     protected Filesystem $files;
@@ -35,15 +33,6 @@ class ApiTranslationLoader implements LoaderContract
         $cacheKey = $namespace && $namespace !== '*' 
             ? "{$prefix}{$locale}.{$namespace}::{$group}" 
             : "{$prefix}{$locale}.{$group}";
-            
-        if (isset($this->loaded[$cacheKey])) {
-            return $this->loaded[$cacheKey];
-        }
-
-        // If locale was preloaded, return from memory or empty array
-        if ($this->preloaded && !isset($this->loaded[$cacheKey])) {
-            return [];
-        }
 
         // For namespaced translations, use the namespace::group format
         $apiGroup = $namespace && $namespace !== '*' 
@@ -70,41 +59,7 @@ class ApiTranslationLoader implements LoaderContract
             return $this->loadFromFiles($locale, $group, $namespace) ?? [];
         }
 
-        // Cache in memory
-        $this->loaded[$cacheKey] = $result;
-
         return $result;
-    }
-
-    /**
-     * Preload all translations for a locale
-     * This is called on application boot for better performance
-     */
-    public function preloadLocale(string $locale): void
-    {
-        $allTranslations = $this->client->loadTranslations($locale);
-
-        $prefix = $this->appNamePrefix ? "{$this->appNamePrefix}:" : '';
-
-        // Convert flat keys to nested structure and store in memory
-        foreach ($allTranslations as $key => $value) {
-            // Split on first dot only
-            $parts = explode('.', $key, 2);
-            if (count($parts) !== 2) {
-                continue;
-            }
-
-            [$group, $item] = $parts;
-            $cacheKey = "{$prefix}{$locale}.{$group}";
-
-            if (!isset($this->loaded[$cacheKey])) {
-                $this->loaded[$cacheKey] = [];
-            }
-
-            $this->setNestedValue($this->loaded[$cacheKey], $item, $value);
-        }
-
-        $this->preloaded = true;
     }
 
     /**
@@ -129,57 +84,6 @@ class ApiTranslationLoader implements LoaderContract
     public function namespaces(): array
     {
         return $this->namespaces;
-    }
-
-    /**
-     * Get all loaded translations
-     */
-    public function getLoaded(): array
-    {
-        return $this->loaded;
-    }
-
-    /**
-     * Clear loaded translations from memory
-     */
-    public function clearLoaded(?string $locale = null): void
-    {
-        if ($locale) {
-            $prefix = $this->appNamePrefix ? "{$this->appNamePrefix}:" : '';
-            $pattern = "{$prefix}{$locale}.";
-            
-            // Clear specific locale
-            foreach (array_keys($this->loaded) as $key) {
-                if (str_starts_with($key, $pattern)) {
-                    unset($this->loaded[$key]);
-                }
-            }
-        } else {
-            // Clear all
-            $this->loaded = [];
-        }
-
-        $this->preloaded = false;
-    }
-
-    /**
-     * Set nested value using dot notation
-     */
-    private function setNestedValue(array &$array, string $key, mixed $value): void
-    {
-        $keys = explode('.', $key);
-        $current = &$array;
-
-        foreach ($keys as $i => $k) {
-            if ($i === count($keys) - 1) {
-                $current[$k] = $value;
-            } else {
-                if (!isset($current[$k]) || !is_array($current[$k])) {
-                    $current[$k] = [];
-                }
-                $current = &$current[$k];
-            }
-        }
     }
 
     private function loadFromFiles($locale, $group, $namespace = null): array

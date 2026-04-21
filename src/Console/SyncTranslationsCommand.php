@@ -62,13 +62,6 @@ class SyncTranslationsCommand extends Command
                 $translations = $client->loadTranslations($locale);
                 $count = count($translations);
 
-                // Preload into loader if available
-                $loader = app('translation.loader');
-                if ($loader instanceof ApiTranslationLoader) {
-                    $loader->clearLoaded($locale);
-                    $loader->preloadLocale($locale);
-                }
-
                 $this->info("    Synced {$count} translations");
                 $successCount++;
             } catch (\Exception $e) {
