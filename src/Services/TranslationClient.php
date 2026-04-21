@@ -24,11 +24,6 @@ class TranslationClient
     public function __construct()
     {
         $this->baseUrl = rtrim(config('translation-client.service_url'), '/');
-        
-        // Use TenantResolver to get tenant UUID with fallback
-        $this->tenantId = \OurEdu\TranslationClient\Helpers\TenantResolver::resolve();
-//        dd($this->tenantUuid);
-            
         $this->client = config('translation-client.client', 'backend');
         $this->appNamePrefix = config('translation-client.app_name_prefix');
         $this->manifestTtl = config('translation-client.manifest_ttl', 300);
@@ -50,33 +45,33 @@ class TranslationClient
         return $this->cache()
             ->tags(['translations', "locale:{$locale}"])
             ->remember($cacheKey, $this->manifestTtl, function () use ($locale, $client) {
-            try {
-                $this->log('info', "Fetching manifest for locale: {$locale}, client: {$client}");
+                try {
+                    $this->log('info', "Fetching manifest for locale: {$locale}, client: {$client}");
 
-                $response = Http::timeout($this->httpTimeout)
-                    ->get("{$this->baseUrl}/api/v1/translation/manifest", [
-                        'tenant' => $this->tenantId,
-                        'locale' => $locale,
-                        'client' => $client,
+                    $response = Http::timeout($this->httpTimeout)
+                        ->get("{$this->baseUrl}/api/v1/translation/manifest", [
+                            'tenant' => $this->getTenantId(),
+                            'locale' => $locale,
+                            'client' => $client,
+                        ]);
+
+                    if ($response->successful()) {
+                        $manifest = $response->json();
+                        $this->log('info', "Manifest fetched successfully", ['version' => $manifest['version'] ?? null]);
+                        return $manifest;
+                    }
+
+                    $this->log('error', 'Translation manifest fetch failed', [
+                        'status' => $response->status(),
+                        'body' => $response->body(),
                     ]);
 
-                if ($response->successful()) {
-                    $manifest = $response->json();
-                    $this->log('info', "Manifest fetched successfully", ['version' => $manifest['version'] ?? null]);
-                    return $manifest;
+                    return $this->getDefaultManifest($locale, $client);
+                } catch (\Exception $e) {
+                    $this->log('error', 'Translation manifest error: ' . $e->getMessage());
+                    return $this->getDefaultManifest($locale, $client);
                 }
-
-                $this->log('error', 'Translation manifest fetch failed', [
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                ]);
-
-                return $this->getDefaultManifest($locale, $client);
-            } catch (\Exception $e) {
-                $this->log('error', 'Translation manifest error: ' . $e->getMessage());
-                return $this->getDefaultManifest($locale, $client);
-            }
-        });
+            });
     }
 
     /**
@@ -89,10 +84,10 @@ class TranslationClient
         string $format = 'flat'
     ): array {
         $client = $client ?? $this->client;
-        
+
         // Apply app name prefix to groups
         $prefixedGroups = $groups ? array_map([$this, 'prefixGroup'], $groups) : null;
-        
+
         $cacheKey = $this->getBundleCacheKey($locale, $prefixedGroups, $client, $format);
 
         // Check if we have a cached version
@@ -112,7 +107,7 @@ class TranslationClient
 
             $response = Http::timeout($this->httpTimeout)
                 ->get("{$this->baseUrl}/api/v1/translation", [
-                    'tenant' => $this->tenantId,
+                    'tenant' => $this->getTenantId(),
                     'locale' => $locale,
                     'groups' => $prefixedGroups ? implode(',', $prefixedGroups) : null,
                     'client' => $client,
@@ -189,10 +184,10 @@ class TranslationClient
 
     /**
      * Push translations to the service
-     * 
+     *
      * @param array $translations Array of translations to create/update
      * @return array Result with created and updated counts
-     * 
+     *
      * Example:
      * $client->pushTranslations([
      *     [
@@ -238,7 +233,7 @@ class TranslationClient
 
     /**
      * Push a single translation
-     * 
+     *
      * @param string $locale
      * @param string $group
      * @param string $key
@@ -256,7 +251,7 @@ class TranslationClient
         bool $isActive = true
     ): array {
         return $this->pushTranslations([[
-            'tenant_id' => $this->tenantId,
+            'tenant_id' => $this->getTenantId(),
             'locale' => $locale,
             'group' => $group,
             'key' => $key,
@@ -268,7 +263,7 @@ class TranslationClient
 
     /**
      * Import translations from Laravel lang files
-     * 
+     *
      * @param string $locale
      * @param string $langPath Path to Laravel lang directory
      * @return array
@@ -338,7 +333,7 @@ class TranslationClient
                     $finalValue = $value; // API will JSON encode it
                 }
                 $result[] = [
-                    'tenant_id' => $this->tenantId,
+                    'tenant_id' => $this->getTenantId(),
                     'locale' => $locale,
                     'group' => $this->prefixGroup($group), // Apply app name prefix
                     'key' => $fullKey,
@@ -383,7 +378,7 @@ class TranslationClient
      */
     private function getManifestCacheKey(string $locale, string $client): string
     {
-        $tenant = $this->tenantId ?? 'global';
+        $tenant = $this->getTenantId() ?? 'global';
         $prefix = $this->appNamePrefix ? "{$this->appNamePrefix}:" : '';
         return "{$prefix}translation:manifest:{$tenant}:{$locale}:{$client}";
     }
@@ -393,7 +388,7 @@ class TranslationClient
      */
     private function getBundleCacheKey(string $locale, ?array $groups, string $client, string $format): string
     {
-        $tenant = $this->tenantId ?? 'global';
+        $tenant = $this->getTenantId() ?? 'global';
         $groupsStr = $groups ? implode('-', $groups) : 'all';
         $prefix = $this->appNamePrefix ? "{$this->appNamePrefix}:" : '';
         return "{$prefix}translation:bundle:{$tenant}:{$locale}:{$groupsStr}:{$client}:{$format}";
@@ -405,7 +400,7 @@ class TranslationClient
     private function getDefaultManifest(string $locale, string $client): array
     {
         return [
-            'tenant' => $this->tenantId,
+            'tenant' => $this->getTenantId(),
             'locale' => $locale,
             'client' => $client,
             'version' => 1,
@@ -437,5 +432,18 @@ class TranslationClient
 
         $channel = config('translation-client.logging.channel', 'stack');
         Log::channel($channel)->$level("[TranslationClient] {$message}", $context);
+    }
+
+    /**
+     * Tenant ID Getter
+     * Use TenantResolver to get tenant ID with prioritized fallback
+     * @return int|null
+     */
+    private function getTenantId(): ?int
+    {
+        if(!isset($this->tenantId)){
+            $this->tenantId = \OurEdu\TranslationClient\Helpers\TenantResolver::resolve();
+        }
+        return $this->tenantId;
     }
 }

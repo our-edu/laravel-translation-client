@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OurEdu\TranslationClient;
 
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Translation\Translator;
 use OurEdu\TranslationClient\Services\TranslationClient;
 use OurEdu\TranslationClient\Services\ApiTranslationLoader;
 use OurEdu\TranslationClient\Console\SyncTranslationsCommand;
@@ -24,7 +25,7 @@ class TranslationServiceProvider extends ServiceProvider
         );
 
         // Register Translation Client as singleton
-        $this->app->singleton(TranslationClient::class, function ($app) {
+        $this->app->scoped(TranslationClient::class, function ($app) {
             return new TranslationClient();
         });
     }
@@ -52,7 +53,7 @@ class TranslationServiceProvider extends ServiceProvider
         // Replace Laravel's translation loader AFTER all providers have booted
         // This ensures our loader takes precedence
         $this->app->booted(function () {
-            $this->app->singleton('translation.loader', function ($app) {
+            $this->app->scoped('translation.loader', function ($app) {
                 $client = $app->make(TranslationClient::class);
                 return new ApiTranslationLoader(
                     $app['files'],
@@ -61,21 +62,17 @@ class TranslationServiceProvider extends ServiceProvider
                 );
             });
 
-            // Force re-resolve the translator to use new loader
-            $this->app->forgetInstance('translator');
-            $translator = $this->app->make('translator');
+            $this->app->scoped('translator' , function ($app){
+                $translator = new Translator(
+                    $app->make('translation.loader'),
+                    $app->getLocale()
+                );
+                $translator->setFallback($app->config['app.fallback_locale'] ?? 'en');
+                return $translator;
+            });
 
-            //keep existing validator extentions , only swap its translator instance
-            if ($this->app->bound('validator')) {
-                $validatorFactory = $this->app->make('validator');
-                $ref = new \ReflectionClass($validatorFactory);
-
-                if ($ref->hasProperty('translator')) {
-                    $prop = $ref->getProperty('translator');
-                    $prop->setAccessible(true);
-                    $prop->setValue($validatorFactory, $translator);
-                }
-            }
+            // Force re-resolve the validator to use new translator
+            $this->app->forgetInstance('validator');
         });
 
         // Auto-register namespaces from translation service
