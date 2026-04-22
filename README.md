@@ -65,9 +65,6 @@ return [
     // Translation service base URL
     'service_url' => env('TRANSLATION_SERVICE_URL', 'http://localhost'),
     
-    // Preload translations on boot (recommended for production)
-    'preload' => env('TRANSLATION_PRELOAD', true),
-    
     // Cache TTL in seconds
     'manifest_ttl' => env('TRANSLATION_MANIFEST_TTL', 300), // 5 minutes
     'bundle_ttl' => env('TRANSLATION_BUNDLE_TTL', 3600), // 1 hour
@@ -359,9 +356,8 @@ php artisan config:cache
 
 ### Performance issues
 
-1. Ensure `TRANSLATION_PRELOAD=true` in production
-2. Use Redis for caching instead of file cache
-3. Increase cache TTL if translations rarely change
+1. Use Redis for caching instead of file cache
+2. Increase cache TTL if translations rarely change
 
 ## License
 
