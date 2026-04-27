@@ -50,9 +50,17 @@ class TranslationServiceProvider extends ServiceProvider
             ]);
         }
 
-        // Replace Laravel's translation loader AFTER all providers have booted
-        // This ensures our loader takes precedence
+        // Replace Laravel's translation loader AFTER all providers have booted.
+        // Laravel's TranslationServiceProvider is a DeferrableProvider: it only calls
+        // register() when 'translation.loader' or 'translator' is first resolved, which
+        // would override our scoped binding.  We force it to register first, then
+        // immediately forget the stale instances and replace them with our own.
         $this->app->booted(function () {
+            // Trigger the deferred TranslationServiceProvider so it registers
+            // its FileLoader binding before we override it.
+            $this->app->make('translation.loader');
+            $this->app->forgetInstance('translation.loader');
+
             $this->app->scoped('translation.loader', function ($app) {
                 $client = $app->make(TranslationClient::class);
                 return new ApiTranslationLoader(
@@ -62,7 +70,11 @@ class TranslationServiceProvider extends ServiceProvider
                 );
             });
 
-            $this->app->scoped('translator' , function ($app){
+            // Do the same for 'translator'.
+            $this->app->make('translator');
+            $this->app->forgetInstance('translator');
+
+            $this->app->scoped('translator', function ($app) {
                 $translator = new Translator(
                     $app->make('translation.loader'),
                     $app->getLocale()
@@ -71,7 +83,7 @@ class TranslationServiceProvider extends ServiceProvider
                 return $translator;
             });
 
-            // Force re-resolve the validator to use new translator
+            // Force re-resolve the validator to use the new translator.
             $this->app->forgetInstance('validator');
         });
 

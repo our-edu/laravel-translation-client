@@ -8,3 +8,5 @@
 .env
 composer.lock
 phpunit.xml.dist
+/.phpunit.result.cache
+/phpunit.xml.bak

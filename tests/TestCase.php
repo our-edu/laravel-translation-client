@@ -27,5 +27,10 @@ abstract class TestCase extends BaseTestCase
         $app['config']->set('translation-client.service_url', 'http://localhost:8000');
         $app['config']->set('translation-client.tenant_id', '1');
         $app['config']->set('translation-client.preload', false);
+        // Disable namespace auto-registration to prevent HTTP calls during boot
+        $app['config']->set('translation-client.auto_register_namespaces', false);
+        // Array driver supports tags and is fresh per test application instance
+        $app['config']->set('cache.default', 'array');
+        $app['config']->set('app.available_locales', ['en', 'ar']);
     }
 }
