@@ -54,12 +54,8 @@ class ApiTranslationLoader implements LoaderContract
         $result = $translations[$prefixedApiGroup] ?? [];
 
 
-        // Fallback to Laravel files if API result is empty
-        if (empty($result)) {
-            return $this->loadFromFiles($locale, $group, $namespace) ?? [];
-        }
-
-        return $result;
+        $translationFile = $this->loadFromFiles($locale, $group, $namespace) ?? [];
+        return array_replace_recursive($translationFile, $result);
     }
 
     /**
