@@ -30,9 +30,6 @@ class ApiTranslationLoader implements LoaderContract
     {
         // Build cache key with app prefix
         $prefix = $this->appNamePrefix ? "{$this->appNamePrefix}:" : '';
-        $cacheKey = $namespace && $namespace !== '*' 
-            ? "{$prefix}{$locale}.{$namespace}::{$group}" 
-            : "{$prefix}{$locale}.{$group}";
 
         // For namespaced translations, use the namespace::group format
         $apiGroup = $namespace && $namespace !== '*' 
@@ -54,12 +51,8 @@ class ApiTranslationLoader implements LoaderContract
         $result = $translations[$prefixedApiGroup] ?? [];
 
 
-        // Fallback to Laravel files if API result is empty
-        if (empty($result)) {
-            return $this->loadFromFiles($locale, $group, $namespace) ?? [];
-        }
-
-        return $result;
+        $translationFile = $this->loadFromFiles($locale, $group, $namespace) ?? [];
+        return array_replace_recursive($translationFile, $result);
     }
 
     /**
