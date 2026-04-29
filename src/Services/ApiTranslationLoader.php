@@ -30,9 +30,6 @@ class ApiTranslationLoader implements LoaderContract
     {
         // Build cache key with app prefix
         $prefix = $this->appNamePrefix ? "{$this->appNamePrefix}:" : '';
-        $cacheKey = $namespace && $namespace !== '*' 
-            ? "{$prefix}{$locale}.{$namespace}::{$group}" 
-            : "{$prefix}{$locale}.{$group}";
 
         // For namespaced translations, use the namespace::group format
         $apiGroup = $namespace && $namespace !== '*' 
