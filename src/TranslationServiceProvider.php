@@ -74,48 +74,6 @@ class TranslationServiceProvider extends ServiceProvider
             // Force re-resolve the validator to use new translator
             $this->app->forgetInstance('validator');
         });
-
-        // Auto-register namespaces from translation service
-        if (config('translation-client.auto_register_namespaces', true)) {
-            $this->registerNamespaces();
-        }
-    }
-
-    /**
-     * Auto-register translation namespaces from the service
-     */
-    protected function registerNamespaces(): void
-    {
-        try {
-            $locale = $this->app->getLocale();
-            $client = $this->app->make(TranslationClient::class);
-            $loader = $this->app->make('translation.loader');
-
-            // Fetch all groups to detect namespaces
-            $bundle = $client->fetchBundle($locale, null, null, 'flat');
-
-            // Extract unique namespaces from group names
-            $namespaces = [];
-            foreach (array_keys($bundle) as $key) {
-                // Check if key contains namespace (format: Namespace::group.key or PREFIX:Namespace::group.key)
-                if (preg_match('/^(?:[^:]+:)?([^:]+)::/', $key, $matches)) {
-                    $namespace = $matches[1];
-                    $namespaces[$namespace] = true;
-                }
-            }
-
-            // Register each namespace
-            foreach (array_keys($namespaces) as $namespace) {
-                if ($loader instanceof ApiTranslationLoader) {
-                    $loader->addNamespace($namespace, base_path('lang'));
-                }
-            }
-        } catch (\Exception $e) {
-            // Silently fail - namespaces can be registered manually if needed
-            if (config('translation-client.logging.enabled', false)) {
-                \Log::warning('[TranslationClient] Failed to auto-register namespaces: ' . $e->getMessage());
-            }
-        }
     }
 
 }
