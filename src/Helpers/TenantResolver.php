@@ -6,16 +6,16 @@ namespace OurEdu\TranslationClient\Helpers;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 class TenantResolver
 {
     /**
      * Get tenant UUID for translation service
-     * 
+     *
      * Priority:
      * 1. Authenticated user's tenant (if multi-tenant ready)
-     * 2. Config value (TRANSLATION_TENANT_UUID)
-     * 3. First tenant from database (fallback)
+     * 2. tenant Context from our-edu multi tenant package
      */
     public static function resolve(): ?int
     {
@@ -25,34 +25,27 @@ class TenantResolver
             return (int) $user->tenant_id;
         }
 
-        // 2. Try Getting tenant value from config
-        if ($tenantId = config('translation-client.tenant_id')) {
-            return (int) $tenantId;
+        if (class_exists('Ouredu\MultiTenant\Tenancy\TenantContext')){
+            $tenantId = app('Ouredu\MultiTenant\Tenancy\TenantContext')->getTenantId();
+            return !is_null($tenantId) ? (int) $tenantId : null;
         }
 
-        // 3. Fallback: Get first tenant from a database
-        return static::getFirstTenant();
+        return null;
     }
 
     /**
-     * Get the first tenant UUID from database
-     * Cached for 1 hour to avoid repeated queries
+     * Get all tenant IDs from the tenants table.
+     * Used by CLI import commands to push translations to every tenant.
+     * No Tenant model exists in this service, so the DB facade is used directly.
      */
-    public static function getFirstTenant(): ?int
+    public static function getAllTenantIds(): array
     {
-        return Cache::remember('translation_client:first_tenants', 3600, function () {
-            try {
-                // Try to get first tenant from tenants table
-                $tenant = DB::table('tenants')
-                    ->orderBy('created_at')
-                    ->first();
-
-                return $tenant?->id ?? null;
-            } catch (\Exception $e) {
-                // Table might not exist or query failed
-                return null;
-            }
-        });
+        try {
+            return DB::table('tenants')->orderBy('id')->pluck('id')->all();
+        } catch (\Exception $e) {
+            Log::error('[TenantResolver] Failed to fetch tenant ids: ' . $e->getMessage());
+            return [];
+        }
     }
 
     /**
