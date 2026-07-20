@@ -14,10 +14,11 @@ class ImportNamespacedTranslationsCommand extends Command
     /**
      * The name and signature of the console command.
      */
-    protected $signature = 'translations:import-namespaced 
+    protected $signature = 'translations:import-namespaced
                             {--locale= : Specific locale to import (optional)}
                             {--path= : Base path to search for Lang directories (optional, defaults to src/App)}
-                            {--pattern= : Directory pattern to search (optional, defaults to */Lang or */*/Lang)}';
+                            {--pattern= : Directory pattern to search (optional, defaults to */Lang or */*/Lang)}
+                            {--only-global : Push as shared translations (tenant_id = null) instead of per-tenant}';
 
     /**
      * The console command description.
@@ -51,17 +52,78 @@ class ImportNamespacedTranslationsCommand extends Command
         $this->info("Found " . count($langDirs) . " Lang directories");
         $this->newLine();
 
+        // Read and flatten each namespace's lang files exactly once, regardless
+        // of how many tenants we push to afterwards.
+        $translationsByNamespace = [];
+        foreach ($langDirs as $langDir) {
+            $namespace = $this->getNamespaceFromPath($langDir, $basePath);
+            $this->info("Reading namespace: {$namespace}");
+            $this->line(" Path: {$langDir}");
+
+            $translations = $this->readFromDirectory($langDir, $namespace);
+
+            if (!empty($translations)) {
+                $translationsByNamespace[$namespace] = $translations;
+            }
+
+            $this->newLine();
+        }
+
+        [$created, $updated, $failures] = $this->pushForTenant($client, $translationsByNamespace, null);
+        $globalSummaryPrint = $this->printSummary($created, $updated, $failures);
+        if ($this->option('global')) {
+            return $globalSummaryPrint;
+        }
+
+        $tenantIds = TenantResolver::getAllTenantIds();
+
+        if (empty($tenantIds)) {
+            $this->error('No tenants found in the tenants table.');
+            return self::FAILURE;
+        }
+
+        $this->info('Found tenants: ' . implode(', ', $tenantIds));
+        $this->newLine();
+
+        $grandCreated = 0;
+        $grandUpdated = 0;
+        $grandFailures = 0;
+
+        foreach ($tenantIds as $tenantId) {
+            $this->info("=== Tenant #{$tenantId} ===");
+
+            [$created, $updated, $failures] = $this->pushForTenant($client, $translationsByNamespace, $tenantId);
+
+            $grandCreated += $created;
+            $grandUpdated += $updated;
+            $grandFailures += $failures;
+        }
+
+        return $this->printSummary($grandCreated, $grandUpdated, $grandFailures);
+    }
+
+    /**
+     * Push the already-built per-namespace translations to a single tenant
+     * (or globally, if $tenantId is null).
+     *
+     * @return array{0:int,1:int,2:int} [created, updated, failureCount]
+     */
+    protected function pushForTenant(TranslationClient $client, array $translationsByNamespace, ?int $tenantId): array
+    {
         $totalCreated = 0;
         $totalUpdated = 0;
         $failureCount = 0;
 
-        foreach ($langDirs as $langDir) {
-            $namespace = $this->getNamespaceFromPath($langDir, $basePath);
-            $this->info("Processing namespace: {$namespace}");
-            $this->line(" Path: {$langDir}");
+        foreach ($translationsByNamespace as $namespace => $translations) {
+            $this->info("Pushing namespace: {$namespace}");
 
             try {
-                $result = $this->importFromDirectory($client, $langDir, $namespace);
+                $payload = array_map(static function (array $translation) use ($tenantId) {
+                    $translation['tenant_id'] = $tenantId;
+                    return $translation;
+                }, $translations);
+
+                $result = $client->pushTranslations($payload);
 
                 $created = $result['created'] ?? 0;
                 $updated = $result['updated'] ?? 0;
@@ -79,7 +141,14 @@ class ImportNamespacedTranslationsCommand extends Command
             $this->newLine();
         }
 
-        // Summary
+        return [$totalCreated, $totalUpdated, $failureCount];
+    }
+
+    /**
+     * Print the run summary and return the resulting exit code.
+     */
+    protected function printSummary(int $totalCreated, int $totalUpdated, int $failureCount): int
+    {
         $this->info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         $this->info("Total Created: {$totalCreated}");
         $this->info("Total Updated: {$totalUpdated}");
@@ -144,22 +213,20 @@ class ImportNamespacedTranslationsCommand extends Command
     }
 
     /**
-     * Import translations from a directory with namespace
+     * Read and flatten translations from a namespaced Lang directory, without pushing them.
+     * Lets the caller parse once and push the same array for multiple tenants.
      */
-    protected function importFromDirectory(
-        TranslationClient $client,
-        string $langDir,
-        string $namespace
-    ): array {
-        $locales = $this->option('locale') 
-            ? [$this->option('locale')] 
+    protected function readFromDirectory(string $langDir, string $namespace): array
+    {
+        $locales = $this->option('locale')
+            ? [$this->option('locale')]
             : $this->getLocalesFromDirectory($langDir);
 
         $allTranslations = [];
 
         foreach ($locales as $locale) {
             $localeDir = $langDir . DIRECTORY_SEPARATOR . $locale;
-            
+
             if (!is_dir($localeDir)) {
                 continue;
             }
@@ -184,11 +251,7 @@ class ImportNamespacedTranslationsCommand extends Command
             }
         }
 
-        if (empty($allTranslations)) {
-            return ['created' => 0, 'updated' => 0];
-        }
-
-        return $client->pushTranslations($allTranslations);
+        return $allTranslations;
     }
 
     /**
@@ -252,7 +315,6 @@ class ImportNamespacedTranslationsCommand extends Command
                 // Preserve arrays (indexed or translatable) as values
                 // API will JSON encode them automatically
                 $result[] = [
-                    'tenant_id' => TenantResolver::resolve(),
                     'locale' => $locale,
                     'group' => $finalGroup, // Apply app prefix here
                     'key' => $fullKey,

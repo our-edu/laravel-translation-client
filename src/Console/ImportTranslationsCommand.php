@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace OurEdu\TranslationClient\Console;
 
 use Illuminate\Console\Command;
+use OurEdu\TranslationClient\Helpers\TenantResolver;
 use OurEdu\TranslationClient\Services\TranslationClient;
 
 class ImportTranslationsCommand extends Command
@@ -12,9 +13,10 @@ class ImportTranslationsCommand extends Command
     /**
      * The name and signature of the console command.
      */
-    protected $signature = 'translations:import 
+    protected $signature = 'translations:import
                             {--locale= : Specific locale to import (optional)}
-                            {--path= : Path to lang directory (optional, defaults to lang_path())}';
+                            {--path= : Path to lang directory (optional, defaults to lang_path())}
+                            {--only-global : Push as shared translations (tenant_id = null) instead of per-tenant}';
 
     /**
      * The console command description.
@@ -47,15 +49,63 @@ class ImportTranslationsCommand extends Command
         $this->info("Found locales: " . implode(', ', $locales));
         $this->newLine();
 
+        // Read and flatten each locale's lang files exactly once, regardless
+        // of how many tenants we push to afterwards.
+        $translationsByLocale = [];
+        foreach ($locales as $locale) {
+            $translationsByLocale[$locale] = $client->buildTranslationsFromFiles($locale, $langPath);
+        }
+
+        [$created, $updated, $failures] = $this->pushLocales($client, $translationsByLocale, null);
+        $globalSummaryPrint = $this->printSummary($created, $updated, $failures);
+        if ($this->option('global')) {
+            return $globalSummaryPrint;
+        }
+
+        $tenantIds = TenantResolver::getAllTenantIds();
+
+        if (empty($tenantIds)) {
+            $this->error('No tenants found in the tenants table.');
+            return self::FAILURE;
+        }
+
+        $this->info('Found tenants: ' . implode(', ', $tenantIds));
+        $this->newLine();
+
+        $grandCreated = 0;
+        $grandUpdated = 0;
+        $grandFailures = 0;
+
+        foreach ($tenantIds as $tenantId) {
+            $this->info("=== Tenant #{$tenantId} ===");
+
+            [$created, $updated, $failures] = $this->pushLocales($client, $translationsByLocale, $tenantId);
+
+            $grandCreated += $created;
+            $grandUpdated += $updated;
+            $grandFailures += $failures;
+        }
+
+        return $this->printSummary($grandCreated, $grandUpdated, $grandFailures);
+    }
+
+    /**
+     * Push the already-built per-locale translations to a single tenant
+     * (or globally, if $tenantId is null).
+     *
+     * @return array{0:int,1:int,2:int} [created, updated, failureCount]
+     */
+    protected function pushLocales(TranslationClient $client, array $translationsByLocale, ?int $tenantId): array
+    {
         $totalCreated = 0;
         $totalUpdated = 0;
         $failureCount = 0;
 
-        foreach ($locales as $locale) {
+        foreach ($translationsByLocale as $locale => $translations) {
             try {
                 $this->info("Importing {$locale}...");
 
-                $result = $client->importFromFiles($locale, $langPath);
+                $result = $client->pushTranslationsForTenant($translations, $tenantId);
 
                 $created = $result['created'] ?? 0;
                 $updated = $result['updated'] ?? 0;
@@ -75,7 +125,14 @@ class ImportTranslationsCommand extends Command
             $this->newLine();
         }
 
-        // Summary
+        return [$totalCreated, $totalUpdated, $failureCount];
+    }
+
+    /**
+     * Print the run summary and return the resulting exit code.
+     */
+    protected function printSummary(int $totalCreated, int $totalUpdated, int $failureCount): int
+    {
         $this->info('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         $this->info("Total Created: {$totalCreated}");
         $this->info("Total Updated: {$totalUpdated}");

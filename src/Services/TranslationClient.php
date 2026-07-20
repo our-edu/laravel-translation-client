@@ -262,13 +262,14 @@ class TranslationClient
     }
 
     /**
-     * Import translations from Laravel lang files
+     * Read and flatten translations from Laravel lang files, without pushing them.
+     * Lets callers parse once and push the same array for multiple tenants.
      *
      * @param string $locale
      * @param string $langPath Path to Laravel lang directory
      * @return array
      */
-    public function importFromFiles(string $locale, string $langPath): array
+    public function buildTranslationsFromFiles(string $locale, string $langPath): array
     {
         $translations = [];
         $files = glob("{$langPath}/{$locale}/*.php");
@@ -287,10 +288,28 @@ class TranslationClient
             );
         }
 
+        return $translations;
+    }
+
+    /**
+     * Push an already-built translations array for a specific tenant,
+     * overwriting tenant_id on every row. Avoids re-reading files from
+     * disk when pushing the same translations to multiple tenants.
+     *
+     * @param array $translations
+     * @param int|null $tenantId
+     * @return array
+     */
+    public function pushTranslationsForTenant(array $translations, ?int $tenantId): array
+    {
         if (empty($translations)) {
-            $this->log('warning', "No translations found in {$langPath}/{$locale}");
             return ['created' => 0, 'updated' => 0, 'total' => 0];
         }
+
+        $translations = array_map(static function (array $translation) use ($tenantId) {
+            $translation['tenant_id'] = $tenantId;
+            return $translation;
+        }, $translations);
 
         return $this->pushTranslations($translations);
     }
@@ -333,7 +352,6 @@ class TranslationClient
                     $finalValue = $value; // API will JSON encode it
                 }
                 $result[] = [
-                    'tenant_id' => $this->getTenantId(),
                     'locale' => $locale,
                     'group' => $this->prefixGroup($group), // Apply app name prefix
                     'key' => $fullKey,
