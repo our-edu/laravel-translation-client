@@ -16,7 +16,7 @@ class ImportTranslationsCommand extends Command
     protected $signature = 'translations:import
                             {--locale= : Specific locale to import (optional)}
                             {--path= : Path to lang directory (optional, defaults to lang_path())}
-                            {--global : Push as shared translations (tenant_id = null) instead of per-tenant}';
+                            {--only-global : Push as shared translations (tenant_id = null) instead of per-tenant}';
 
     /**
      * The console command description.
@@ -56,10 +56,10 @@ class ImportTranslationsCommand extends Command
             $translationsByLocale[$locale] = $client->buildTranslationsFromFiles($locale, $langPath);
         }
 
+        [$created, $updated, $failures] = $this->pushLocales($client, $translationsByLocale, null);
+        $globalSummaryPrint = $this->printSummary($created, $updated, $failures);
         if ($this->option('global')) {
-            [$created, $updated, $failures] = $this->pushLocales($client, $translationsByLocale, null);
-
-            return $this->printSummary($created, $updated, $failures);
+            return $globalSummaryPrint;
         }
 
         $tenantIds = TenantResolver::getAllTenantIds();

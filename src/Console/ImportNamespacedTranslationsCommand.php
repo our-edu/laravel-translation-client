@@ -18,7 +18,7 @@ class ImportNamespacedTranslationsCommand extends Command
                             {--locale= : Specific locale to import (optional)}
                             {--path= : Base path to search for Lang directories (optional, defaults to src/App)}
                             {--pattern= : Directory pattern to search (optional, defaults to */Lang or */*/Lang)}
-                            {--global : Push as shared translations (tenant_id = null) instead of per-tenant}';
+                            {--only-global : Push as shared translations (tenant_id = null) instead of per-tenant}';
 
     /**
      * The console command description.
@@ -69,10 +69,10 @@ class ImportNamespacedTranslationsCommand extends Command
             $this->newLine();
         }
 
+        [$created, $updated, $failures] = $this->pushForTenant($client, $translationsByNamespace, null);
+        $globalSummaryPrint = $this->printSummary($created, $updated, $failures);
         if ($this->option('global')) {
-            [$created, $updated, $failures] = $this->pushForTenant($client, $translationsByNamespace, null);
-
-            return $this->printSummary($created, $updated, $failures);
+            return $globalSummaryPrint;
         }
 
         $tenantIds = TenantResolver::getAllTenantIds();
