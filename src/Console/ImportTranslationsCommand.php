@@ -58,7 +58,7 @@ class ImportTranslationsCommand extends Command
 
         [$created, $updated, $failures] = $this->pushLocales($client, $translationsByLocale, null);
         $globalSummaryPrint = $this->printSummary($created, $updated, $failures);
-        if ($this->option('global')) {
+        if ($this->option('only-global')) {
             return $globalSummaryPrint;
         }
 
