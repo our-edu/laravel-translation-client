@@ -81,7 +81,7 @@ trait TranslationProcessingTrait
 
             foreach ($files as $file) {
                 $group = basename($file, '.php');
-                $data = include_once $file;
+                $data = include $file; // should be include() not include_once() as it's repeatable
 
                 if (!is_array($data)) {
                     continue;
