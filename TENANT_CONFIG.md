@@ -2,325 +2,130 @@
 
 ## Overview
 
-The package supports multiple tenant configuration strategies, from simple single-tenant to full multi-tenant applications.
+Every call this package makes to the translation service carries a tenant id, or
+carries none at all. That id decides whether the service answers with a tenant's
+own translations or with the shared base template.
+
+`OurEdu\TranslationClient\Helpers\TenantResolver::resolve()` produces it, and this
+document describes exactly what it does — no more.
+
+> **This guide was rewritten on 2026-08-16.** It previously described four
+> configuration strategies, three of which the package has never implemented. If
+> you built against the old version, read [What does not
+> work](#what-does-not-work-yet) before anything else.
 
 ---
 
-## Strategy 1: Auto-Detect First Tenant (Recommended for Initial Setup)
+## How the tenant is resolved
 
-**Best for**: Apps not yet multi-tenant ready
-
-### Configuration
-
-**Don't set** `TRANSLATION_TENANT_ID` in `.env`:
-
-```env
-TRANSLATION_SERVICE_URL=http://translation-service
-# TRANSLATION_TENANT_ID not set - will auto-detect
-```
-
-### How It Works
-
-The package automatically:
-1. Checks config for `TRANSLATION_TENANT_ID`
-2. If not set, queries database: `SELECT id FROM tenants ORDER BY created_at LIMIT 1`
-3. Caches result for 1 hour
-
-### Example
+`resolve()` tries two sources, in order, and gives up:
 
 ```php
-// Your tenants table:
-// id | name      | created_at
-// 1  | School 1  | 2024-01-01
-// 2  | School 2  | 2024-01-02
+public static function resolve(): ?int
+{
+    $user = auth()->user();
 
-// Package automatically uses: 1
+    // 1. The authenticated user's tenant_id
+    if (auth()->check() && !is_null($user->tenant_id)) {
+        return (int) $user->tenant_id;
+    }
+
+    // 2. TenantContext, if the our-edu multi-tenant package is installed
+    if (class_exists('Ouredu\MultiTenant\Tenancy\TenantContext')) {
+        $tenantId = app('Ouredu\MultiTenant\Tenancy\TenantContext')->getTenantId();
+        return !is_null($tenantId) ? (int) $tenantId : null;
+    }
+
+    return null;
+}
 ```
+
+**`null` is a valid answer, not a failure.** The service then serves the global
+base template, which is the right content for an app that is not tenant-aware,
+and for console commands and queued jobs where no user is authenticated.
 
 ---
 
-## Strategy 2: Fixed Tenant UUID
+## Strategy 1: Per-user tenant
 
-**Best for**: Single-tenant apps or testing
+**Best for**: apps where a user belongs to a tenant. This is the strategy the
+package actually implements.
 
-### Configuration
-
-```env
-TRANSLATION_TENANT_ID=1
-```
-
-### How It Works
-
-Package always uses the configured tenant UUID.
-
----
-
-## Strategy 3: Per-User Tenant (Full Multi-Tenant)
-
-**Best for**: Apps where each user belongs to a tenant
-
-### Setup
-
-#### Option A: User Model Method
-
-Add to your `User` model:
+Your `User` model needs a `tenant_id` **attribute** — a real column, or an
+accessor:
 
 ```php
 class User extends Authenticatable
 {
-    public function tenant_id(): ?string
+    // Either a tenant_id column on the users table, or:
+    protected function tenantId(): Attribute
     {
-        return $this->tenant?->id;
+        return Attribute::get(fn () => $this->tenant?->id);
     }
 }
 ```
 
-The package automatically checks for this method.
+> A `tenant_id()` *method* is not enough. `resolve()` reads `$user->tenant_id` as
+> a property, so a plain method is never called. It has to be a column or an
+> accessor. The previous version of this guide got this wrong.
 
-#### Option B: Middleware
-
-Create middleware to set tenant dynamically:
-
-```php
-<?php
-
-namespace App\Http\Middleware;
-
-use Closure;
-use OurEdu\TranslationClient\Helpers\TenantResolver;
-
-class SetTranslationTenant
-{
-    public function handle($request, Closure $next)
-    {
-        if (auth()->check()) {
-            $tenantId = auth()->user()->tenant?->id;
-            TenantResolver::setTenant($tenantId);
-        }
-
-        return $next($request);
-    }
-}
-```
-
-Register in `app/Http/Kernel.php`:
-
-```php
-protected $middlewareGroups = [
-    'web' => [
-        // ...
-        \App\Http\Middleware\SetTranslationTenant::class,
-    ],
-];
-```
+Nothing else to configure. Requests made while that user is authenticated carry
+their tenant.
 
 ---
 
-## Strategy 4: Per-Request Tenant
+## Strategy 2: TenantContext
 
-**Best for**: API applications with tenant in request
+**Best for**: apps already using the our-edu multi-tenant package.
 
-### Middleware Example
+If `Ouredu\MultiTenant\Tenancy\TenantContext` is bound, `resolve()` asks it
+whenever there is no authenticated user with a tenant. Nothing to configure here
+either — the class being installed is the whole integration.
 
-```php
-<?php
-
-namespace App\Http\Middleware;
-
-use Closure;
-use OurEdu\TranslationClient\Helpers\TenantResolver;
-
-class SetTenantFromRequest
-{
-    public function handle($request, Closure $next)
-    {
-        // From header
-        $tenantUuid = $request->header('X-Tenant-ID');
-        
-        // Or from subdomain
-        $subdomain = $request->getHost();
-        $tenant = Tenant::where('subdomain', $subdomain)->first();
-        $tenantId = $tenant?->id;
-
-        TenantResolver::setTenant($tenantId);
-
-        return $next($request);
-    }
-}
-```
+This is also the route that works in queued jobs and console commands, where
+`auth()` is empty.
 
 ---
 
-## Migration Path
+## What does not work (yet)
 
-### Phase 1: Single Tenant (Now)
+These are documented here because the package ships config and a public method
+that imply otherwise.
 
-```env
-# Don't set TRANSLATION_TENANT_ID
-# Auto-uses first tenant
-```
+| Thing | Status |
+|---|---|
+| `TRANSLATION_TENANT_ID` env / `translation-client.tenant_id` config | **Read by nothing.** Setting it has no effect. |
+| `TenantResolver::setTenant($id)` | **No-op.** It writes `translation-client.tenant_id`, which nothing reads. |
+| Auto-detecting the first tenant (`SELECT id FROM tenants ORDER BY created_at LIMIT 1`) | **Never existed.** No such query, and no caching of a resolved tenant. |
 
-**Result**: All translations use first tenant ID
+So there is currently **no way to pin a fixed tenant** for a single-tenant app,
+and **no way to override the tenant per request** — a middleware calling
+`setTenant()` from a header or subdomain does nothing.
 
-### Phase 2: Transition (Later)
+Making `setTenant()` work is small: `resolve()` would need to read
+`config('translation-client.tenant_id')`. The open question is where that read
+belongs in the order, and it is a product decision rather than a mechanical one:
 
-Add middleware to detect tenant per user:
+- **Config as an override, checked first** — `setTenant()` means "use this
+  tenant", so a per-request middleware wins. But a stale `TRANSLATION_TENANT_ID`
+  left in `.env` would then silently override per-user resolution for every
+  request in a multi-tenant app.
+- **Config as a fallback, checked last** — safe, and correct for pinning a
+  single-tenant app, but a per-request `setTenant()` would lose to the
+  authenticated user, which is not what a caller of that method expects.
 
-```php
-// Middleware sets tenant dynamically
-TenantResolver::setTenant($user->tenant_id);
-```
-
-**Result**: Translations per user's tenant
-
-### Phase 3: Full Multi-Tenant (Future)
-
-Remove auto-detection, require explicit tenant:
-
-```php
-// config/translation-client.php
-'tenant_id' => null, // Must be set via middleware
-```
-
-**Result**: Strict multi-tenant enforcement
+Neither is obviously right, so nothing has been implemented. Raise it before
+building on either.
 
 ---
 
-## Examples
-
-### Example 1: School Management System
-
-**Current State**: All schools share translations
-
-```env
-# No tenant UUID set
-# Uses first school automatically
-```
-
-**Usage**:
-```php
-__('messages.welcome')  // Same for all schools
-```
-
-**Future State**: Each school has custom translations
-
-```php
-// Middleware sets tenant per logged-in user
-if (auth()->user()->school_id === 1) {
-    // Uses school-1-uuid translations
-}
-```
-
----
-
-### Example 2: SaaS Application
-
-**Current State**: Single tenant for testing
-
-```env
-TRANSLATION_TENANT_ID=1
-```
-
-**Future State**: Tenant per customer
-
-```php
-// Middleware detects from subdomain
-$tenant = Tenant::where('subdomain', $request->getHost())->first();
-TenantResolver::setTenant($tenant->id);
-```
-
----
-
-## TenantResolver API
-
-### Methods
+## Verifying what you get
 
 ```php
 use OurEdu\TranslationClient\Helpers\TenantResolver;
 
-// Get current tenant (auto-detects if not set)
-$uuid = TenantResolver::resolve();
-
-// Get first tenant from database
-$uuid = TenantResolver::getFirstTenant();
-
-// Set tenant dynamically
-TenantResolver::setTenant('1');
+dump(TenantResolver::resolve());  // int, or null for the global template
 ```
 
-### Usage in Code
-
-```php
-// In a controller
-public function switchTenant($tenantId)
-{
-    $tenant = Tenant::findOrFail($tenantId);
-    TenantResolver::setTenant($tenant->id);
-    
-    // Now translations use this tenant
-    return __('messages.welcome');
-}
-```
-
----
-
-## Best Practices
-
-### 1. Start Simple
-
-Use auto-detection initially:
-```env
-# No TRANSLATION_TENANT_ID
-```
-
-### 2. Add Middleware When Ready
-
-```php
-// Set tenant per user
-TenantResolver::setTenant(auth()->user()->tenant_id);
-```
-
-### 3. Cache Tenant Resolution
-
-The package caches the first tenant for 1 hour automatically.
-
-### 4. Clear Cache on Tenant Changes
-
-```php
-Cache::forget('translation_client:first_tenant');
-```
-
----
-
-## Troubleshooting
-
-### Translations Not Found
-
-**Check current tenant**:
-```php
-dd(config('translation-client.tenant_id'));
-```
-
-**Check auto-detection**:
-```php
-dd(TenantResolver::getFirstTenant());
-```
-
-### Wrong Tenant Used
-
-**Set explicitly**:
-```php
-TenantResolver::setTenant('correct-tenant-id');
-```
-
----
-
-## Summary
-
- **Auto-detection** - Uses first tenant automatically  
- **Fixed tenant** - Set via environment variable  
- **Per-user tenant** - Via User model method  
- **Per-request tenant** - Via middleware  
- **Flexible** - Easy migration from single to multi-tenant  
-
-Start simple with auto-detection, evolve to full multi-tenant when ready! 
+`null` while a user is logged in means their `tenant_id` attribute is absent or
+null — check that first, before looking at anything in this package.

@@ -1,70 +1,49 @@
 # Quick Setup: Tenant Configuration
 
-## For Initial Setup (Recommended)
+## The short version
 
-**Don't set `TRANSLATION_TENANT_ID` in `.env`**
+There is nothing to configure. `TenantResolver::resolve()` reads the
+authenticated user's `tenant_id`, falls back to `TenantContext` if the our-edu
+multi-tenant package is installed, and otherwise returns `null`.
 
-The package will automatically use the first tenant from your `tenants` table.
+`null` is fine: the service then serves the shared base template, which is the
+right content for an app that is not tenant-aware, and for console commands and
+queued jobs where nobody is logged in.
 
 ```env
 TRANSLATION_SERVICE_URL=http://translation-service
 TRANSLATION_APP_PREFIX=DOK
-# TRANSLATION_TENANT_ID not set - auto-detects first tenant
 ```
 
 ---
 
-## How It Works
+## To get per-tenant translations
 
-1. **Package checks** if `TRANSLATION_TENANT_ID` is set in config
-2. **If not set**, queries database:
-   ```sql
-   SELECT id FROM tenants ORDER BY created_at LIMIT 1
-   ```
-3. **Caches result** for 1 hour
-
----
-
-## Example
-
-Your `tenants` table:
-
-| id | name | created_at |
-|----|------|------------|
-| 1 | School 1 | 2024-01-01 |
-| 2 | School 2 | 2024-01-02 |
-
-**Package automatically uses**: `1`
-
----
-
-## Later: Full Multi-Tenant
-
-When your codebase is ready for per-user tenants, add middleware:
+Give your `User` model a `tenant_id` **attribute** — a real column, or an
+accessor:
 
 ```php
-use OurEdu\TranslationClient\Helpers\TenantResolver;
-
-class SetTranslationTenant
+protected function tenantId(): Attribute
 {
-    public function handle($request, Closure $next)
-    {
-        if (auth()->check()) {
-            TenantResolver::setTenant(auth()->user()->tenant_id);
-        }
-        return $next($request);
-    }
+    return Attribute::get(fn () => $this->tenant?->id);
 }
 ```
 
-**No other changes needed!**
+That is the whole integration. A `tenant_id()` *method* will not do: the resolver
+reads `$user->tenant_id` as a property, so a plain method is never called.
 
 ---
 
-## Summary
+## What this guide used to say
 
- **Now**: Auto-uses first tenant (zero config)  
- **Later**: Add middleware for per-user tenants  
- **No code changes**: Transparent upgrade path  
+It described the package checking `TRANSLATION_TENANT_ID`, then running
+`SELECT id FROM tenants ORDER BY created_at LIMIT 1` and caching the result for an
+hour, and it suggested a middleware calling `TenantResolver::setTenant()`.
 
-See [TENANT_CONFIG.md](TENANT_CONFIG.md) for full details.
+**None of that is implemented.** There is no auto-detect query, no caching,
+`TRANSLATION_TENANT_ID` is read by nothing, and `setTenant()` writes a config key
+nothing reads — so it is a no-op. A middleware built on it silently does nothing.
+
+Corrected 2026-08-16. See [TENANT_CONFIG.md](TENANT_CONFIG.md) for the full
+picture, including the open question about how a fixed or per-request tenant
+*should* work.
