@@ -36,6 +36,12 @@ class TranslationClient
 
     /**
      * Check if translations need updating
+     *
+     * Stays keyed on the **requested** locale: this is the lookup that tells us
+     * which locale the service actually resolved to, so it cannot itself be
+     * keyed on the answer. The payload is small, so holding one per requested
+     * tag is cheap — bundles are where the duplication mattered, and those key
+     * on the resolved tag.
      */
     public function checkVersion(string $locale, ?string $client = null): array
     {
@@ -88,15 +94,22 @@ class TranslationClient
         // Apply app name prefix to groups
         $prefixedGroups = $groups ? array_map([$this, 'prefixGroup'], $groups) : null;
 
-        $cacheKey = $this->getBundleCacheKey($locale, $prefixedGroups, $client, $format);
+        // The manifest is read first, and unconditionally, because it carries
+        // the resolved locale that the bundle cache key is built from. It is
+        // itself cached for manifest_ttl, so this is a memory read on the warm
+        // path rather than an extra request.
+        $manifest = $this->checkVersion($locale, $client);
+        $resolvedLocale = $this->resolvedLocale($manifest, $locale);
+
+        $cacheKey = $this->getBundleCacheKey($resolvedLocale, $prefixedGroups, $client, $format);
+        $tags = $this->cacheTags($resolvedLocale);
 
         // Check if we have a cached version
-        $cached = $this->cache()->tags(['translations', "locale:{$locale}"])->get($cacheKey);
+        $cached = $this->cache()->tags($tags)->get($cacheKey);
         if ($cached) {
             // Verify version is still current
-            $manifest = $this->checkVersion($locale, $client);
             if (isset($cached['version']) && $cached['version'] === $manifest['version']) {
-                $this->log('debug', "Using cached bundle for locale: {$locale}");
+                $this->log('debug', "Using cached bundle for locale: {$resolvedLocale}");
                 return $cached['data'];
             }
         }
@@ -117,8 +130,18 @@ class TranslationClient
             if ($response->successful()) {
                 $data = $response->json();
 
+                // The bundle response carries resolved_locale too. Prefer it over
+                // the manifest's: if the two ever disagree, the bundle is the one
+                // describing the bytes being cached.
+                $bundleLocale = $this->resolvedLocale($data, $resolvedLocale);
+
+                if ($bundleLocale !== $resolvedLocale) {
+                    $cacheKey = $this->getBundleCacheKey($bundleLocale, $prefixedGroups, $client, $format);
+                    $tags = $this->cacheTags($bundleLocale);
+                }
+
                 // Cache the bundle
-                $this->cache()->tags(['translations', "locale:{$locale}"])->put($cacheKey, $data, $this->bundleTtl);
+                $this->cache()->tags($tags)->put($cacheKey, $data, $this->bundleTtl);
 
                 $this->log('info', "Bundle fetched successfully", [
                     'count' => $data['count'] ?? 0,
@@ -168,18 +191,73 @@ class TranslationClient
 
     /**
      * Clear all translation caches
+     *
+     * Callers pass the tag they asked for, not the one negotiation picked, and
+     * bundles are tagged with the resolved locale — so `clearCache('ar')` has to
+     * flush `locale:ar-SA` as well or it would evict the manifest and leave the
+     * bundle it describes behind.
+     *
+     * The resolved tag is read from the manifest cache without refetching. If
+     * the manifest has already expired there is nothing left to map through, and
+     * only the requested tag is flushed; the bundle still self-invalidates on
+     * its next version comparison, so the cost is a missed force-refresh rather
+     * than stale content.
      */
     public function clearCache(?string $locale = null): void
     {
-        if ($locale) {
-            // Clear specific locale
-            $this->log('info', "Clearing cache for locale: {$locale}");
-            $this->cache()->tags(['translations', "locale:{$locale}"])->flush();
-        } else {
-            // Clear all
+        if (! $locale) {
             $this->log('info', "Clearing all translation caches");
             $this->cache()->tags(['translations'])->flush();
+
+            return;
         }
+
+        $this->log('info', "Clearing cache for locale: {$locale}");
+
+        foreach ($this->cachedLocaleTags($locale) as $tag) {
+            $this->cache()->tags([$tag])->flush();
+        }
+
+        $this->cache()->tags(['translations', "locale:{$locale}"])->flush();
+    }
+
+    /**
+     * Every `locale:` tag a requested locale may have content filed under.
+     *
+     * @return string[]
+     */
+    private function cachedLocaleTags(string $locale): array
+    {
+        $tags = ["locale:{$locale}"];
+
+        foreach ($this->knownClients() as $client) {
+            $manifest = $this->cache()
+                ->tags(['translations', "locale:{$locale}"])
+                ->get($this->getManifestCacheKey($locale, $client));
+
+            if (! is_array($manifest)) {
+                continue;
+            }
+
+            $resolved = $this->resolvedLocale($manifest, $locale);
+
+            if (! in_array("locale:{$resolved}", $tags, true)) {
+                $tags[] = "locale:{$resolved}";
+            }
+        }
+
+        return $tags;
+    }
+
+    /**
+     * Clients a manifest may have been cached under: this app's configured one,
+     * plus the shared layer.
+     *
+     * @return array<int, string>
+     */
+    private function knownClients(): array
+    {
+        return array_values(array_unique([$this->client, 'backend', 'frontend', 'mobile']));
     }
 
     /**
@@ -403,6 +481,11 @@ class TranslationClient
 
     /**
      * Generate bundle cache key
+     *
+     * `$locale` here is the **resolved** tag, not the requested one. Any number
+     * of requested tags can negotiate to the same locale — `ar`, `ar-AE` and
+     * `ar-EG` all resolve to `ar-SA` for a tenant assigned it — and keying on
+     * the request would store one identical copy per spelling, refetching each.
      */
     private function getBundleCacheKey(string $locale, ?array $groups, string $client, string $format): string
     {
@@ -413,13 +496,49 @@ class TranslationClient
     }
 
     /**
+     * The locale the service actually served, per a manifest or bundle response.
+     *
+     * Falls back to what was asked for when the field is absent, which covers
+     * both an older service build and the offline default manifest.
+     */
+    private function resolvedLocale(array $response, string $requested): string
+    {
+        $resolved = $response['resolved_locale'] ?? null;
+
+        return is_string($resolved) && $resolved !== '' ? $resolved : $requested;
+    }
+
+    /**
+     * Cache tags for a bundle, which are always the *resolved* locale's.
+     *
+     * The tag set must not vary by requested locale. Laravel namespaces a
+     * tagged entry by its whole tag set, so tagging `['translations',
+     * 'locale:ar-SA', 'locale:ar']` and `['translations', 'locale:ar-SA',
+     * 'locale:ar-AE']` produces two namespaces and two copies — reintroducing
+     * exactly the duplication this milestone removes. Reaching a bundle by the
+     * tag a caller asked for is {@see clearCache()}'s job instead.
+     *
+     * @return string[]
+     */
+    private function cacheTags(string $resolved): array
+    {
+        return ['translations', "locale:{$resolved}"];
+    }
+
+    /**
      * Get default manifest when API is unavailable
+     *
+     * Echoes both locale fields rather than omitting them: callers that read
+     * `resolved_locale` must not start getting null exactly when the service is
+     * unreachable, which is the moment the fallback exists for.
      */
     private function getDefaultManifest(string $locale, string $client): array
     {
         return [
             'tenant' => $this->getTenantId(),
             'locale' => $locale,
+            'requested_locale' => $locale,
+            'resolved_locale' => $locale,
             'client' => $client,
             'version' => 1,
             'etag' => 'W/"default-1"',
