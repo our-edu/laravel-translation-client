@@ -293,9 +293,12 @@ class TranslationClient
 
             if ($response->successful()) {
                 $result = $response->json();
+                // `unchanged` is where most of a re-import lands: the service
+                // is insert-only, so a key it already holds is left alone.
                 $this->log('info', "Translations pushed successfully", [
                     'created' => $result['created'] ?? 0,
                     'updated' => $result['updated'] ?? 0,
+                    'unchanged' => $result['unchanged'] ?? 0,
                 ]);
                 return $result;
             }
@@ -384,7 +387,7 @@ class TranslationClient
     public function pushTranslationsForTenant(array $translations, ?int $tenantId): array
     {
         if (empty($translations)) {
-            return ['created' => 0, 'updated' => 0, 'total' => 0];
+            return ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'total' => 0];
         }
 
         $translations = array_map(static function (array $translation) use ($tenantId) {
