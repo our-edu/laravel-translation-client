@@ -31,7 +31,7 @@ consuming apps have upgraded.
 | 2 | Key client-side caches on `resolved_locale` | ✅ **Done** | `e42b571` |
 | 3 | Regional tags in config, middleware and the lang-file fallback | ✅ **Done** | `2183edd` |
 | 4 | Reconcile the two `flattenTranslations` copies | ✅ **Done** | `b747d4a` |
-| 5 | *(cross-repo)* `POST /api/v1/translation` cannot update | ✅ **Done** — service-side | `c1e183b` (service repo) |
+| 5 | *(cross-repo)* `POST /api/v1/translation` cannot update | ✅ **Closed — not a defect**, insert-only is intended | — |
 
 ---
 
@@ -241,7 +241,7 @@ fails 2.
 
 ---
 
-## C5 — `POST /api/v1/translation` cannot update (done, service repo `c1e183b`)
+## C5 — `POST /api/v1/translation` cannot update (closed: by design)
 
 Every push path in this package — `pushTranslations()`, `pushTranslation()`, and both import commands —
 goes through that endpoint. The service's `TranslationWriteApiController` uses `firstOrCreate()` plus an
@@ -252,23 +252,29 @@ service-side against a real database:
 |---|---|---|
 | `POST value: "FIRST"` then `POST value: "SECOND"` | `updated: 1` | `"FIRST"` |
 
-For this package that meant **re-importing edited lang files silently did not update anything**, which
-made C1's "imports write the base template" story only half-usable. The service had scoped it out on
-the theory that non-clobbering imports might be intended — a theory this work disproved.
+For this package that means **re-importing an edited lang file does not change what is stored**.
 
-Fixed service-side in `c1e183b`: a real upsert, with the three additive-merge helpers deleted. Two
-consequences for this package:
+That is intended, and it is the answer to C5 rather than a problem to fix. **Only dashboard users
+change a translation's value.** Pushes from a consuming app seed content; they must not clobber what
+someone has since edited in the admin UI. The additive merge for nested values is the same intent —
+new sub-keys arrive, present ones are left alone.
 
-- **`translations:import` now actually changes stored values.** Re-running it after editing a lang file
-  does what it always claimed to.
-- **The response gained an `unchanged` count**, and a row that already matches is not counted as
-  updated and does not bump the version. `TranslationClient::pushTranslations()` logs `created` and
-  `updated` only, so it needs no change — but anything reading `total` should know it now means rows
-  *processed*, not rows written.
+It was briefly "fixed" to a real upsert service-side and that change was rejected and reverted. The
+service repo now pins the behaviour with `TranslationWriteApiIsInsertOnlyTest`, so anyone who spots the
+apparent bug finds the intent stated.
 
-> Lang-file imports overwrite template values from now on. Coherent with C1 — lang files own the base
-> template, the admin screens own tenant overrides — but an admin editing a *template* row in the
-> service UI will have it replaced by the next import.
+### What this means for the import commands
+
+`translations:import` and `translations:import-namespaced` are **seeding** tools. They fill in keys the
+service does not have yet, and they are safe to re-run — a redeploy cannot undo an admin's edit. What
+they cannot do is propagate a changed string from a lang file to a translation that already exists.
+
+Hold this alongside C1's *"lang files are the base template"*: true of the first import, not of later
+ones. After that first seed, the template is maintained in the dashboard.
+
+> The response reports `updated: N` for rows it did not touch, so
+> `TranslationClient::pushTranslations()` logs an `updated` count that overstates what happened. A
+> misleading label rather than wrong behaviour, and left alone deliberately.
 
 ---
 
