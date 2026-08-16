@@ -31,7 +31,7 @@ consuming apps have upgraded.
 | 2 | Key client-side caches on `resolved_locale` | ✅ **Done** | `e42b571` |
 | 3 | Regional tags in config, middleware and the lang-file fallback | ✅ **Done** | `2183edd` |
 | 4 | Reconcile the two `flattenTranslations` copies | ✅ **Done** | `b747d4a` |
-| 5 | *(cross-repo)* `POST /api/v1/translation` cannot update | ⬜ Not started, **service-side** | — |
+| 5 | *(cross-repo)* `POST /api/v1/translation` cannot update | ✅ **Done** — service-side | `c1e183b` (service repo) |
 
 ---
 
@@ -241,7 +241,7 @@ fails 2.
 
 ---
 
-## C5 — `POST /api/v1/translation` cannot update (not started, service-side)
+## C5 — `POST /api/v1/translation` cannot update (done, service repo `c1e183b`)
 
 Every push path in this package — `pushTranslations()`, `pushTranslation()`, and both import commands —
 goes through that endpoint. The service's `TranslationWriteApiController` uses `firstOrCreate()` plus an
@@ -252,10 +252,23 @@ service-side against a real database:
 |---|---|---|
 | `POST value: "FIRST"` then `POST value: "SECOND"` | `updated: 1` | `"FIRST"` |
 
-For this package that means **re-importing edited lang files silently does not update anything**. The
-service scoped it out on the theory that non-clobbering imports may be intended; from the client's side
-that makes C1's "imports write the base template" story only half-usable. Needs a decision, then either
-a fix to `updateOrCreate` or explicit documentation that the endpoint is insert-only.
+For this package that meant **re-importing edited lang files silently did not update anything**, which
+made C1's "imports write the base template" story only half-usable. The service had scoped it out on
+the theory that non-clobbering imports might be intended — a theory this work disproved.
+
+Fixed service-side in `c1e183b`: a real upsert, with the three additive-merge helpers deleted. Two
+consequences for this package:
+
+- **`translations:import` now actually changes stored values.** Re-running it after editing a lang file
+  does what it always claimed to.
+- **The response gained an `unchanged` count**, and a row that already matches is not counted as
+  updated and does not bump the version. `TranslationClient::pushTranslations()` logs `created` and
+  `updated` only, so it needs no change — but anything reading `total` should know it now means rows
+  *processed*, not rows written.
+
+> Lang-file imports overwrite template values from now on. Coherent with C1 — lang files own the base
+> template, the admin screens own tenant overrides — but an admin editing a *template* row in the
+> service UI will have it replaced by the next import.
 
 ---
 
