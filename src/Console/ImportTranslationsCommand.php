@@ -15,13 +15,16 @@ class ImportTranslationsCommand extends Command
     protected $signature = 'translations:import
                             {--locale= : Specific locale to import (optional)}
                             {--path= : Path to lang directory (optional, defaults to lang_path())}
-                            {--only-global : Push as shared translations (tenant_id = null) instead of per-tenant}
                             {--sync : Run synchronously instead of dispatching to queue (optional)}';
 
     /**
      * The console command description.
+     *
+     * `--only-global` is gone rather than deprecated. Writing the base template
+     * is now the only behaviour, so the flag had nothing left to select, and a
+     * no-op flag reads as though the other mode still exists.
      */
-    protected $description = 'Import translations from Laravel lang files to Translation Service';
+    protected $description = 'Import translations from Laravel lang files to the Translation Service base template';
 
     /**
      * Execute the console command.
@@ -40,8 +43,7 @@ class ImportTranslationsCommand extends Command
 
         $job = new ImportTranslationsJob(
             $langPath,
-            $this->option('locale'),
-            $this->option('only-global')
+            $this->option('locale')
         );
 
         try {
@@ -51,8 +53,7 @@ class ImportTranslationsCommand extends Command
             } else {
                 ImportTranslationsJob::dispatch(
                     $langPath,
-                    $this->option('locale'),
-                    $this->option('only-global')
+                    $this->option('locale')
                 );
                 $this->info('Import job dispatched to queue.');
                 $this->line('The import will be processed by your queue worker.');

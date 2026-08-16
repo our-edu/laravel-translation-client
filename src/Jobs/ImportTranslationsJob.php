@@ -9,7 +9,6 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use OurEdu\TranslationClient\Helpers\TenantResolver;
 use OurEdu\TranslationClient\Services\TranslationClient;
 
 class ImportTranslationsJob implements ShouldQueue
@@ -25,7 +24,6 @@ class ImportTranslationsJob implements ShouldQueue
     public function __construct(
         public string $langPath,
         public ?string $locale = null,
-        public bool $onlyGlobal = false,
     ) {
     }
 
@@ -47,29 +45,19 @@ class ImportTranslationsJob implements ShouldQueue
             $translationsByLocale[$locale] = $client->buildTranslationsFromFiles($locale, $this->langPath);
         }
 
-        // Push global translations
+        // Write the base template and stop.
+        //
+        // This used to fan out afterwards, re-pushing identical content once per
+        // tenant in the tenants table. That was the client-side instance of the
+        // physical-copy model the service has now replaced with inheritance: a
+        // tenant with no override for a key reads the base template already, so
+        // a per-tenant copy adds nothing and becomes an unreachable row the
+        // moment the tenant moves to a regional variant — the resolution chain
+        // has no `tenant + <bare language>` step.
+        //
+        // Lang files are the template, never a tenant's overrides. Overrides are
+        // authored in the service's admin screens.
         $this->pushLocales($client, $translationsByLocale, null);
-
-        // If only global flag is set, stop here
-        if ($this->onlyGlobal) {
-            return;
-        }
-
-        // Get all tenant IDs and dispatch per-tenant jobs
-        $tenantIds = TenantResolver::getAllTenantIds();
-
-        if (empty($tenantIds)) {
-            throw new \Exception('No tenants found in the tenants table.');
-        }
-
-        // Dispatch a job for each tenant
-        foreach ($tenantIds as $tenantId) {
-            ImportTenantTranslationsJob::dispatch(
-                $tenantId,
-                $this->langPath,
-                $this->locale
-            );
-        }
     }
 
     /**

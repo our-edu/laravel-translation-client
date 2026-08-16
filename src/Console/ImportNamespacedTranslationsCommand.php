@@ -16,13 +16,15 @@ class ImportNamespacedTranslationsCommand extends Command
                             {--locale= : Specific locale to import (optional)}
                             {--path= : Base path to search for Lang directories (optional, defaults to src/App)}
                             {--pattern= : Directory pattern to search (optional, defaults to */Lang or */*/Lang)}
-                            {--only-global : Push as shared translations (tenant_id = null) instead of per-tenant}
                             {--sync : Run synchronously instead of dispatching to queue (optional)}';
 
     /**
      * The console command description.
+     *
+     * `--only-global` is gone rather than deprecated — see
+     * ImportTranslationsCommand.
      */
-    protected $description = 'Import namespaced translations from modular directory structures';
+    protected $description = 'Import namespaced translations from modular directory structures into the base template';
 
     /**
      * Execute the console command.
@@ -43,8 +45,7 @@ class ImportNamespacedTranslationsCommand extends Command
         $job = new ImportNamespacedTranslationsJob(
             $basePath,
             $pattern,
-            $this->option('locale'),
-            $this->option('only-global')
+            $this->option('locale')
         );
 
         try {
@@ -55,8 +56,7 @@ class ImportNamespacedTranslationsCommand extends Command
                 ImportNamespacedTranslationsJob::dispatch(
                     $basePath,
                     $pattern,
-                    $this->option('locale'),
-                    $this->option('only-global')
+                    $this->option('locale')
                 );
                 $this->info('Import job dispatched to queue.');
                 $this->line('The import will be processed by your queue worker.');

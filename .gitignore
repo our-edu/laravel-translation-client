@@ -3,6 +3,7 @@
 /.idea/
 /.vscode/
 /.phpunit.cache/
+/.phpunit.result.cache
 /coverage/
 .DS_Store
 .env

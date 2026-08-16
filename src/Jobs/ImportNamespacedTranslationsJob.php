@@ -9,7 +9,6 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use OurEdu\TranslationClient\Helpers\TenantResolver;
 use OurEdu\TranslationClient\Services\TranslationClient;
 
 class ImportNamespacedTranslationsJob implements ShouldQueue
@@ -27,7 +26,6 @@ class ImportNamespacedTranslationsJob implements ShouldQueue
         public string $basePath,
         public string $pattern,
         public ?string $locale = null,
-        public bool $onlyGlobal = false,
     ) {
     }
 
@@ -54,30 +52,9 @@ class ImportNamespacedTranslationsJob implements ShouldQueue
             }
         }
 
-        // Push global translations
+        // Write the base template and stop — see ImportTranslationsJob for why
+        // the per-tenant fan-out that used to follow this line is gone.
         $this->pushForTenant($client, $translationsByNamespace, null);
-
-        // If only global flag is set, stop here
-        if ($this->onlyGlobal) {
-            return;
-        }
-
-        // Get all tenant IDs and dispatch per-tenant jobs
-        $tenantIds = TenantResolver::getAllTenantIds();
-
-        if (empty($tenantIds)) {
-            throw new \Exception('No tenants found in the tenants table.');
-        }
-
-        // Dispatch a job for each tenant
-        foreach ($tenantIds as $tenantId) {
-            ImportTenantNamespacedTranslationsJob::dispatch(
-                $tenantId,
-                $this->basePath,
-                $this->pattern,
-                $this->locale
-            );
-        }
     }
 
     /**

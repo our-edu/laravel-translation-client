@@ -9,9 +9,14 @@
             <directory>tests</directory>
         </testsuite>
     </testsuites>
-    <coverage>
+    <!--
+        PHPUnit 10 moved include/exclude out of <coverage> and into <source>.
+        The old spelling still worked but emitted a runner deprecation on every
+        run, which nobody saw because the suite had no tests to run.
+    -->
+    <source>
         <include>
             <directory suffix=".php">src</directory>
         </include>
-    </coverage>
+    </source>
 </phpunit>
