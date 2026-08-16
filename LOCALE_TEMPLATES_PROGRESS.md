@@ -28,7 +28,7 @@ consuming apps have upgraded.
 | # | Milestone | Status | Commit |
 |---|---|---|---|
 | 1 | Lang-file imports write the base template only — delete the per-tenant fan-out | ✅ **Done** | `4b6269a` |
-| 2 | Key client-side caches on `resolved_locale` | ⬜ Not started | — |
+| 2 | Key client-side caches on `resolved_locale` | ✅ **Done** | `e42b571` |
 | 3 | Regional tags in config, middleware and the lang-file fallback | ⬜ Not started | — |
 | 4 | Reconcile the two `flattenTranslations` copies | ⬜ Not started | — |
 | 5 | *(cross-repo)* `POST /api/v1/translation` cannot update | ⬜ Not started, **service-side** | — |
@@ -76,30 +76,56 @@ invisible until now because the suite had no tests to run.
 
 ---
 
-## C2 — key caches on `resolved_locale` (not started)
+## C2 — key caches on `resolved_locale` (done, `e42b571`)
 
 **This is the one that gates the service's feature flag.**
 
-`getManifestCacheKey()` (`src/Services/TranslationClient.php:397`), `getBundleCacheKey()` (`:407`) and
-the `"locale:{$locale}"` cache tags (`:46`, `:94`, `:121`, `:177`) all key on the **requested** locale.
-§4.3 added `resolved_locale` to both API responses precisely so `?locale=ar` and `?locale=ar-AE` stop
-colliding while holding different content — this package does not read the field at all.
+`getBundleCacheKey()` and the `"locale:…"` cache tags keyed on whatever tag the caller asked for. §4.3
+added `resolved_locale` to both API responses so `?locale=ar` and `?locale=ar-AE` stop colliding while
+holding different content; this package never read the field, so it inherited the mirror image of that
+problem one hop upstream — several requested tags negotiating to the *same* locale each stored an
+identical copy and refetched independently.
 
-There is a chicken-and-egg to resolve: the resolved tag comes *from* the manifest, but the manifest is
-itself cached. The cleanest split is **manifest keyed on the requested tag** — it is small and carries
-`resolved_locale` — and **bundles keyed on the resolved tag**, which removes the duplication where it
-is actually expensive.
+Bundles now key and tag on the **resolved** locale. The manifest deliberately stays on the **requested**
+tag: it is the lookup that reveals the resolved one, so it cannot be keyed on its own answer. It is
+also small, which is why the duplication only ever mattered for bundles.
 
-`getDefaultManifest()` (`:418`) must also echo `requested_locale`/`resolved_locale`, or callers that
-come to depend on the field break exactly when the API is unreachable.
+`fetchBundle()` therefore reads the manifest unconditionally rather than only when a cached bundle
+exists, since the key depends on it. The manifest is cached for `manifest_ttl`, so the warm path is a
+memory read.
 
-> **Good news, verified:** `fetchBundle()` compares versions with `===` (`:98`), not `>`. So this client
-> is **not** vulnerable to the version-goes-backwards trap the service's M3 note warns about — it
-> refetches rather than going permanently stale.
+### Two things that were not obvious
 
-The service's `LOCALE_TEMPLATES_PROGRESS.md` states the flag may only be enabled once consuming clients
-read `resolved_locale`. C2 is that precondition, and shipping the package is not enough — consuming
-apps have to upgrade too.
+**Tags cannot include the requested locale.** Laravel namespaces a tagged entry by its *whole tag set*,
+so `['translations','locale:ar-SA','locale:ar']` and `['translations','locale:ar-SA','locale:ar-AE']`
+are two namespaces holding two copies — reintroducing exactly the duplication being removed. The tag
+set is the resolved locale's alone, and `clearCache()` maps the requested tag through the cached
+manifest instead. Where the manifest has already expired only the requested tag is flushed; the bundle
+still self-invalidates on its next version comparison, so the cost is a missed force-refresh rather
+than stale content.
+
+**`Http::fake()` merges stub callbacks rather than replacing them.** A test that re-fakes mid-way
+silently asserts against the first stub. The tests use one request-driven fake instead — worth knowing
+before adding to them.
+
+### Compatibility
+
+A service that sends no `resolved_locale` — an older build, or one with `TRANSLATION_REGIONAL_LOCALES`
+off — still works and falls back to the requested tag. So this ships safely ahead of the flag.
+
+`getDefaultManifest()` now echoes `requested_locale`/`resolved_locale`, so callers depending on the
+field do not get null exactly when the API is unreachable.
+
+> **Verified while here:** `fetchBundle()` compares versions with `===`, not `>`. This client is **not**
+> vulnerable to the version-goes-backwards trap the service's M3 note warns about — it refetches rather
+> than going permanently stale.
+
+### The flag is still not unblocked by this alone
+
+The service's handover states `TRANSLATION_REGIONAL_LOCALES` may only be enabled once consuming clients
+read `resolved_locale`. That is now true of the package — but **consuming apps have to upgrade to a
+release containing this commit** before the flag can be flipped. Shipping the package is necessary, not
+sufficient.
 
 ---
 
