@@ -297,6 +297,66 @@ Tests use `orchestra/testbench`; `tests/TestCase.php` registers the service prov
 
 ---
 
+## Follow-up fixes (2026-08-16)
+
+### `translations:sync` removed
+
+Deleted as dead code. Translations are fetched lazily and a cached bundle carries
+the version it was built from, compared against the manifest on every read, so an
+edit in the service is picked up on the next request whether or not anything has
+been "synced". `--force` only wrapped `clearCache()`, which
+`translations:clear-cache` already exposes. Six markdown files referenced it and
+now point at `translations:clear-cache` or say plainly that nothing needs
+scheduling.
+
+### The push log surfaces `unchanged` (`cb58a06`)
+
+The service now reports `unchanged` alongside `created` and `updated`, and for
+this package that is where most of a re-import lands — the endpoint is
+insert-only, so a key it already holds is left alone. Logging only created and
+updated made a routine re-import look like it had done nothing at all.
+
+### Tenant documentation corrected (`54a220e`)
+
+`TENANT_CONFIG.md` and `QUICKSTART_TENANT.md` described four tenant strategies.
+**Three have never been implemented:** auto-detecting the first tenant with
+`SELECT id FROM tenants ORDER BY created_at LIMIT 1` cached for an hour, pinning
+one with `TRANSLATION_TENANT_ID`, and overriding per request with
+`TenantResolver::setTenant()`. There is no such query, no caching, the config key
+is read by nothing, and `setTenant()` writes that same unread key — so a
+middleware built on it silently does nothing.
+
+Stale docs are worse than none here, because they describe a tenant *selection*
+mechanism a reader may believe they are relying on: an app following the old guide
+would quietly serve the global template to everyone.
+
+Both files now describe what `resolve()` does — the authenticated user's
+`tenant_id`, then `TenantContext`, then `null` — and say that `null` is a valid
+answer rather than a failure. They also correct a subtler error: the guide told
+readers to add a `tenant_id()` *method*, but the resolver reads `$user->tenant_id`
+as a property, so it has to be a column or an accessor.
+
+**The functional gap is documented, not closed.** Making `setTenant()` work needs
+`resolve()` to read the config, and where that read belongs is a product decision:
+checked **first** means an explicit override wins, but a stale `TRANSLATION_TENANT_ID`
+in `.env` silently hijacks a multi-tenant app; checked **last** is safe for pinning
+a single-tenant app, but a per-request `setTenant()` would lose to the
+authenticated user, which is not what calling it implies. Neither is obviously
+right, so nothing was implemented.
+
+### Release state — the flag is still blocked
+
+`TRANSLATION_REGIONAL_LOCALES` may only be enabled once consuming apps read
+`resolved_locale`. That is true of this package as of **C2** — but C2 is on
+`regional-locale-templates` only. It is **not merged to `main`** and the latest
+tag is **1.4.5**, which predates all of this work. **No consuming app can be on a
+release containing it.**
+
+The flag is currently `false` service-side. Before it can be enabled: merge this
+branch, tag a release, publish, and upgrade the consuming apps.
+
+---
+
 ## Pre-existing defects found but not fixed
 
 Neither is caused by this work.
