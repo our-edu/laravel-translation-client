@@ -21,6 +21,9 @@ class TranslationClient
     private ?string $cacheStore;
     private bool $loggingEnabled;
 
+    /** @var string[] keys dropped by flattenTranslations for having no value */
+    private array $skippedKeys = [];
+
     public function __construct()
     {
         $this->baseUrl = rtrim(config('translation-client.service_url'), '/');
@@ -395,8 +398,20 @@ class TranslationClient
     /**
      * Flatten nested translation array to flat structure
      * Preserves arrays as JSON values (matching API behavior)
+     *
+     * The single implementation. `TranslationProcessingTrait` used to carry a
+     * near-copy of this that diverged in one important way: it skipped empty
+     * values and this did not. The service's write API declares
+     * `translations.*.value` as `required`, and Laravel's `required` rejects
+     * null, `[]`, `''` **and** whitespace-only strings — so a single blank lang
+     * value made `translations:import` fail its whole batch with a 422 while
+     * `translations:import-namespaced` quietly dropped the key and succeeded.
+     *
+     * Skipping is the correct half of that pair: an override always carries a
+     * value, so a blank is nothing the service can store. Dropped keys are
+     * recorded rather than swallowed — see {@see takeSkippedKeys()}.
      */
-    private function flattenTranslations(array $data, string $locale, string $group, string $prefix = ''): array
+    public function flattenTranslations(array $data, string $locale, string $group, string $prefix = ''): array
     {
         $result = [];
 
@@ -422,25 +437,86 @@ class TranslationClient
                     $result,
                     $this->flattenTranslations($value, $locale, $group, $fullKey)
                 );
-            } else {
-                // Preserve arrays (indexed or translatable) as JSON
-                // This matches the API's behavior (lines 80-82 in TranslationWriteApiController)
-                $finalValue = $value;
-                if (is_array($value)) {
-                    $finalValue = $value; // API will JSON encode it
-                }
-                $result[] = [
-                    'locale' => $locale,
-                    'group' => $this->prefixGroup($group), // Apply app name prefix
-                    'key' => $fullKey,
-                    'value' => $finalValue,
-                    'client' => $this->client,
-                    'is_active' => true,
-                ];
+
+                continue;
             }
+
+            if ($this->isEmptyValue($value)) {
+                $this->skippedKeys[] = "{$locale} {$group}.{$fullKey}";
+
+                continue;
+            }
+
+            // Arrays (indexed or translatable) are preserved; the API JSON
+            // encodes them.
+            $result[] = [
+                'locale' => $locale,
+                'group' => $this->prefixGroup($group), // Apply app name prefix
+                'key' => $fullKey,
+                'value' => $value,
+                'client' => $this->client,
+                'is_active' => true,
+            ];
         }
 
         return $result;
+    }
+
+    /**
+     * Would the service refuse this value?
+     *
+     * Mirrors Laravel's `required`, which the write API applies to every value:
+     * null, an empty array, and any string that trims to nothing.
+     */
+    private function isEmptyValue(mixed $value): bool
+    {
+        if ($value === null) {
+            return true;
+        }
+
+        if (is_array($value)) {
+            return $value === [];
+        }
+
+        return is_string($value) && trim($value) === '';
+    }
+
+    /**
+     * Keys dropped for having no value, since the last time this was called.
+     *
+     * Reading clears the list, so a caller reports each key once.
+     *
+     * @return string[]
+     */
+    public function takeSkippedKeys(): array
+    {
+        $skipped = $this->skippedKeys;
+        $this->skippedKeys = [];
+
+        return $skipped;
+    }
+
+    /**
+     * Log what an import discarded, and clear the record.
+     *
+     * Dropping blank values is what lets an import containing one empty lang
+     * string succeed at all — the service refuses them. Dropping them
+     * *invisibly* is how a key goes missing and nobody finds out, so this logs
+     * unconditionally rather than through this package's opt-in channel.
+     */
+    public function reportSkippedKeys(): void
+    {
+        $skipped = $this->takeSkippedKeys();
+
+        if ($skipped === []) {
+            return;
+        }
+
+        Log::warning(
+            '[TranslationClient] Skipped ' . count($skipped) . ' translation key(s) with an empty value; '
+            . 'the service rejects blanks, so they were not pushed.',
+            ['total' => count($skipped), 'keys' => array_slice($skipped, 0, 50)]
+        );
     }
 
     /**

@@ -45,6 +45,8 @@ class ImportTranslationsJob implements ShouldQueue
             $translationsByLocale[$locale] = $client->buildTranslationsFromFiles($locale, $this->langPath);
         }
 
+        $client->reportSkippedKeys();
+
         // Write the base template and stop.
         //
         // This used to fan out afterwards, re-pushing identical content once per

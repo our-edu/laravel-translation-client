@@ -45,12 +45,14 @@ class ImportNamespacedTranslationsJob implements ShouldQueue
         $translationsByNamespace = [];
         foreach ($langDirs as $langDir) {
             $namespace = $this->getNamespaceFromPath($langDir, $this->basePath);
-            $translations = $this->readFromDirectory($langDir, $namespace, $this->locale);
+            $translations = $this->readFromDirectory($client, $langDir, $namespace, $this->locale);
 
             if (!empty($translations)) {
                 $translationsByNamespace[$namespace] = $translations;
             }
         }
+
+        $client->reportSkippedKeys();
 
         // Write the base template and stop — see ImportTranslationsJob for why
         // the per-tenant fan-out that used to follow this line is gone.
