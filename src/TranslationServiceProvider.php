@@ -8,7 +8,6 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Translation\Translator;
 use OurEdu\TranslationClient\Services\TranslationClient;
 use OurEdu\TranslationClient\Services\ApiTranslationLoader;
-use OurEdu\TranslationClient\Console\SyncTranslationsCommand;
 use OurEdu\TranslationClient\Console\ClearTranslationCacheCommand;
 
 class TranslationServiceProvider extends ServiceProvider
@@ -43,7 +42,6 @@ class TranslationServiceProvider extends ServiceProvider
 
             // Register commands
             $this->commands([
-                SyncTranslationsCommand::class,
                 ClearTranslationCacheCommand::class,
                 \OurEdu\TranslationClient\Console\ImportTranslationsCommand::class,
                 \OurEdu\TranslationClient\Console\ImportNamespacedTranslationsCommand::class,

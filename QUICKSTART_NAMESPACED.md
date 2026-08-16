@@ -69,13 +69,7 @@ Found 2 Lang directories
 ----------------------------------------
 ```
 
-### 4. Verify
-
-```bash
-php artisan translations:sync
-```
-
-### 5. Test
+### 4. Test
 
 ```php
 // Should work exactly as before

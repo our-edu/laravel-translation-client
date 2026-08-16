@@ -279,10 +279,6 @@ php artisan translations:import-namespaced
 
 ### Step 3: Verify
 
-```bash
-php artisan translations:sync
-```
-
 Test that namespaced translations work:
 
 ```php
@@ -319,10 +315,10 @@ php artisan translations:import-namespaced
 
 ### 3. **Sync After Import**
 
-Always sync after importing to verify:
+After importing, clear the cache so the next request fetches the new content:
 
 ```bash
-php artisan translations:sync
+php artisan translations:clear-cache
 ```
 
 ### 4. **Test Namespaced Access**

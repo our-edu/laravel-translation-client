@@ -404,14 +404,7 @@ When pushing translations, each translation object should have:
 php artisan translations:import
 ```
 
-### Step 2: Verify Import
-
-```bash
-# Sync to verify
-php artisan translations:sync
-```
-
-### Step 3: Lock File-Based Translations (Optional)
+### Step 2: Lock File-Based Translations (Optional)
 
 Make lang files read-only to prevent future edits:
 
@@ -419,13 +412,13 @@ Make lang files read-only to prevent future edits:
 chmod -R 444 resources/lang/
 ```
 
-### Step 4: CI/CD Integration
+### Step 3: CI/CD Integration
 
 Add to your deployment script:
 
 ```bash
-# After deployment, sync translations
-php artisan translations:sync
+# After deployment, drop cached bundles so the next request refetches
+php artisan translations:clear-cache
 ```
 
 ---

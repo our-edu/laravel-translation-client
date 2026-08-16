@@ -119,21 +119,6 @@ trans('messages.hello', ['name' => 'Ahmed'])
 
 ### Commands
 
-#### Sync Translations
-
-Manually fetch and cache translations:
-
-```bash
-# Sync all locales
-php artisan translations:sync
-
-# Sync specific locale
-php artisan translations:sync --locale=ar
-
-# Force refresh (clear cache first)
-php artisan translations:sync --force
-```
-
 #### Clear Cache
 
 Clear translation caches:
@@ -161,16 +146,14 @@ php artisan translations:import --locale=ar
 php artisan translations:import --path=/path/to/lang
 ```
 
-### Scheduled Sync
+### Keeping Translations Fresh
 
-Add to `app/Console/Kernel.php` to sync translations hourly:
+Nothing needs scheduling. Translations are fetched on first use and cached; each
+cached bundle carries the version it was built from, which is compared against
+the service's manifest on every read, so an edit in the service is picked up on
+the next request rather than at the next sync.
 
-```php
-protected function schedule(Schedule $schedule): void
-{
-    $schedule->command('translations:sync')->hourly();
-}
-```
+Use `translations:clear-cache` if you need to force that immediately.
 
 ### Middleware for Locale Detection
 
