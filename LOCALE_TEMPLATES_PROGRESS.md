@@ -154,9 +154,11 @@ Matching gained two behaviours:
 
 ### `available_locales` now lists regional tags
 
-With a note that two things read the list and want different amounts of it: `translations:sync` warms
-**every** entry, while the middleware only validates against it. Trim it to the variants your tenants
-are actually assigned.
+Its only reader is the middleware, which validates requested locales against it. Trim it to the
+variants your tenants are actually assigned.
+
+> Originally this also documented `translations:sync` as a consumer. That command has since been
+> deleted as dead code — see [below](#translationssync-removed-2026-08-16).
 
 ### Not in §6.8: the lang-file layer was dead for regional locales
 
@@ -255,7 +257,37 @@ Neither is caused by this work.
    `Ouredu\MultiTenant\Tenancy\TenantContext`. Stale documentation is worse than none here, because it
    describes a *tenant selection* strategy someone may be relying on.
 
-2. ~~**`config/translation-client.php` has its own `available_locales`** that nothing but
-   `translations:sync` reads, while the middleware reads `config('app.available_locales')`~~ — fixed as
-   part of C3 (`2183edd`). Both now read the package key, with `app.available_locales` merged in for
-   apps that had defined it.
+2. ~~**`config/translation-client.php` has its own `available_locales`** that only the sync command
+   reads, while the middleware reads `config('app.available_locales')`~~ — fixed as part of C3
+   (`2183edd`). The middleware now reads the package key, with `app.available_locales` merged in for
+   apps that had defined it, and it is the only reader left.
+
+---
+
+## `translations:sync` removed (2026-08-16)
+
+`SyncTranslationsCommand` was deleted as dead code, along with its registration in
+`TranslationServiceProvider`.
+
+Nothing depended on it. Translations are fetched lazily on first use, and a cached bundle carries the
+version it was built from, which is compared against the service's manifest on every read — so an edit
+in the service is picked up on the next request whether or not anything has been "synced". The command
+was a warm-up loop plus a `--force` that only wrapped `clearCache()`, which `translations:clear-cache`
+already exposes.
+
+Its removal reaches back into C3: `available_locales` was documented as having two readers with
+different appetites — sync warming every entry, the middleware merely validating against it. Only the
+middleware remains, so the "every entry is one more locale to warm" caveat is gone and the list can be
+sized purely for what requests are allowed.
+
+C1 and C2 are untouched by this. `clearCache()` — which C2 reworked so that clearing by a requested tag
+reaches a bundle filed under the resolved one — is still reached by `translations:clear-cache`, so that
+work stands on its own.
+
+Six markdown files referenced the command in setup, deployment, Docker and troubleshooting recipes; all
+now point at `translations:clear-cache` or say plainly that nothing needs scheduling. Two "verify by
+syncing" steps became empty headings and were folded into the steps around them.
+
+> `LOCALE_TEMPLATES_MIGRATION.md` §6.8 (in the service repo) still lists
+> `src/Console/SyncTranslationsCommand.php` as a file to update. That row is now moot. The design doc
+> is left as the historical artifact it is rather than rewritten.
