@@ -29,7 +29,7 @@ consuming apps have upgraded.
 |---|---|---|---|
 | 1 | Lang-file imports write the base template only — delete the per-tenant fan-out | ✅ **Done** | `4b6269a` |
 | 2 | Key client-side caches on `resolved_locale` | ✅ **Done** | `e42b571` |
-| 3 | Regional tags in config, middleware and the lang-file fallback | ⬜ Not started | — |
+| 3 | Regional tags in config, middleware and the lang-file fallback | ✅ **Done** | `2183edd` |
 | 4 | Reconcile the two `flattenTranslations` copies | ⬜ Not started | — |
 | 5 | *(cross-repo)* `POST /api/v1/translation` cannot update | ⬜ Not started, **service-side** | — |
 
@@ -129,25 +129,51 @@ sufficient.
 
 ---
 
-## C3 — regional tags in config, middleware and file fallback (not started)
+## C3 — regional tags in config, middleware and file fallback (done, `2183edd`)
 
-Three items, one of which is not in the design doc.
+Three fixes, one of which is not in the design doc.
 
-**Wrong config key.** `SetLocaleFromRequest::getAvailableLocales()` (`src/Middleware/SetLocaleFromRequest.php:71`)
-reads `config('app.available_locales')` — a *different* key from this package's own
-`config/translation-client.php:132`. Pre-existing, and a wrong key silently rejects every regional tag
-and falls through to the app default.
+### The middleware read a config key that does not exist
 
-**Bare tags in config.** `available_locales` is `['ar', 'en']`. It drives which locales
-`translations:sync` warms. Bare tags keep working through truncation fallback, but produce exactly the
-cache-key collision C2 is about. Casing also needs normalising, so `ar_EG` and `ar-EG` are one tag.
+`SetLocaleFromRequest::getAvailableLocales()` read `config('app.available_locales')`. **That is not a
+standard Laravel key.** Unless a consuming app had defined one itself, the default collapsed to
+`[config('app.locale')]` and every locale but the app default was silently rejected — so the middleware
+had effectively never worked for a second language, let alone a regional variant of one. It was
+described in §6.8 as a tidy-up; it was a live bug.
 
-**The lang-file fallback breaks on regional tags — not in the design doc.**
-`ApiTranslationLoader::loadFromFiles()` (`src/Services/ApiTranslationLoader.php:82`) builds
-`"{$path}/{$locale}/{$group}.php"` from the raw tag. Set the app locale to `ar-SA` and it looks for
-`lang/ar-SA/messages.php`, which no consuming app has — so the local file layer that
-`array_replace_recursive` merges under the API result (`:54`) silently returns nothing for **every**
-regional locale. It must truncate the tag to its language.
+It now reads this package's own key and merges `app.available_locales` in, so apps that *did* define
+one keep working.
+
+Matching gained two behaviours:
+
+- **Casing is normalised** — `AR_sa`, `ar-sa` and `ar-SA` are one tag.
+- **Language-level fallback.** A request for `ar`, or for a variant this app does not serve such as
+  `ar-EG`, is served the variant configured for Arabic. Without this, listing only regional tags in
+  config would reject every bare `ar` — a regression, not a migration. It mirrors how the service
+  negotiates: the request's language selects, configuration decides the variant.
+
+### `available_locales` now lists regional tags
+
+With a note that two things read the list and want different amounts of it: `translations:sync` warms
+**every** entry, while the middleware only validates against it. Trim it to the variants your tenants
+are actually assigned.
+
+### Not in §6.8: the lang-file layer was dead for regional locales
+
+`ApiTranslationLoader::loadFromFiles()` built `"{$path}/{$locale}/{$group}.php"` straight from the
+locale, so `ar-SA` looked for `lang/ar-SA/messages.php`. Apps ship `lang/ar/`, so the file layer
+returned nothing for **every** regional locale.
+
+That is not a missed optimisation. `load()` merges the API result *over* the file result, so the files
+are what supply any key the service does not return — losing them silently dropped those keys. It now
+tries the exact tag first (an app that does keep `lang/ar-SA/` gets it), then the language.
+
+> This is also the mechanism behind the service-side S8 decision: because the API value wins over the
+> local file, a service answering in the wrong language *overwrites* a correct local string rather than
+> filling a gap. Same merge, two conclusions.
+
+Thirteen tests. Verified by mutation: restoring the raw-tag path fails 2, restoring the wrong config
+key fails 7.
 
 ---
 
@@ -229,6 +255,7 @@ Neither is caused by this work.
    `Ouredu\MultiTenant\Tenancy\TenantContext`. Stale documentation is worse than none here, because it
    describes a *tenant selection* strategy someone may be relying on.
 
-2. **`config/translation-client.php` has its own `available_locales`** that nothing but
-   `translations:sync` reads, while the middleware reads `config('app.available_locales')`. Two keys,
-   one concept — see C3.
+2. ~~**`config/translation-client.php` has its own `available_locales`** that nothing but
+   `translations:sync` reads, while the middleware reads `config('app.available_locales')`~~ — fixed as
+   part of C3 (`2183edd`). Both now read the package key, with `app.available_locales` merged in for
+   apps that had defined it.
