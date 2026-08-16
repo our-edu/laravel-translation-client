@@ -30,7 +30,7 @@ consuming apps have upgraded.
 | 1 | Lang-file imports write the base template only — delete the per-tenant fan-out | ✅ **Done** | `4b6269a` |
 | 2 | Key client-side caches on `resolved_locale` | ✅ **Done** | `e42b571` |
 | 3 | Regional tags in config, middleware and the lang-file fallback | ✅ **Done** | `2183edd` |
-| 4 | Reconcile the two `flattenTranslations` copies | ⬜ Not started | — |
+| 4 | Reconcile the two `flattenTranslations` copies | ✅ **Done** | `b747d4a` |
 | 5 | *(cross-repo)* `POST /api/v1/translation` cannot update | ⬜ Not started, **service-side** | — |
 
 ---
@@ -179,7 +179,7 @@ key fails 7.
 
 ---
 
-## C4 — reconcile the two `flattenTranslations` copies (not started)
+## C4 — reconcile the two `flattenTranslations` copies (done, `b747d4a`)
 
 > ⚠️ **§6.8 is wrong about this one.** It says the two copies "are byte-for-byte identical and should be
 > deduplicated rather than patched independently", and that *both* skip empty values. Neither is true.
@@ -203,9 +203,41 @@ an empty string (verified). Therefore:
   `POST /api/v1/translation` batch fail validation with 422, and the job throws.
 - `translations:import-namespaced` — drops those keys client-side and succeeds, silently.
 
-Deduplicating is a **behaviour reconciliation, not a copy-paste removal**. S5 confirmed on the service
-side that an override always carries a value, which argues for skipping — but skipping makes the import
-quietly lossy, so it should report what it dropped rather than swallowing it.
+Deduplicating was therefore a **behaviour reconciliation, not a copy-paste removal**.
+
+### What landed
+
+The trait's copy is gone; both paths call `TranslationClient::flattenTranslations()`.
+`readFromDirectory()` takes the client in order to, and `isTranslatableArray()` went with the copy that
+used it.
+
+**Skipping is the correct half.** S5 confirmed on the service side that an override always carries a
+value, so a blank is nothing the service can store. The check now mirrors Laravel's `required`
+*exactly* — null, `[]`, `''` **and whitespace-only strings** — which was verified against the running
+service rather than assumed:
+
+```
+required rejects ''      : true      required rejects []   : true
+required rejects ' '     : true      required rejects null : true
+```
+
+That last point matters: the trait compared `=== ''`, so `'   '` slipped through and would still have
+422'd the batch. **The surviving copy was wrong too** — deduplicating onto it unchanged would have left
+a subtler version of the same bug.
+
+**Dropped keys are logged, not swallowed.** Losing a key because it was blank is correct; losing it
+invisibly is how nobody finds out. `reportSkippedKeys()` logs a warning unconditionally rather than
+through this package's opt-in `logging` channel, and both import jobs call it.
+
+It lives on `TranslationClient` rather than in the trait because only one of the two jobs uses that
+trait — putting a shared helper there would have repeated the very mistake being fixed.
+
+Twelve tests. Verified by mutation: not skipping fails 5, comparing `=== ''` instead of trimming
+fails 2.
+
+> Worth knowing for later: the skip applies to a row's whole value, not to leaves inside one. An
+> all-string array is a *translatable value* preserved as-is, so a blank leaf within one survives — and
+> should, since a non-empty array passes `required`.
 
 ---
 
