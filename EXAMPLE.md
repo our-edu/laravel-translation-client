@@ -156,9 +156,14 @@ protected $middlewareGroups = [
 
 ### Keeping Translations Fresh
 
-Nothing to schedule. A cached bundle carries the version it was built from and
-that is compared against the service's manifest on every read, so an edit in the
-service is picked up on the next request.
+Nothing to schedule. A cached bundle carries the version it was built from, and
+that is checked against the service's manifest on every read, so it cannot go
+stale indefinitely.
+
+The manifest is itself cached for `manifest_ttl` (300s by default), so an edit in
+the service appears within that window rather than on the very next request.
+Lower `TRANSLATION_MANIFEST_TTL` to shorten it, or run
+`translations:clear-cache` to force a refresh.
 
 ### Using the Facade
 
