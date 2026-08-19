@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace OurEdu\TranslationClient\Jobs;
 
+use OurEdu\TranslationClient\Services\TranslationClient;
+
 /**
  * Shared helper methods for translation processing across jobs and commands.
  * Handles translation file reading, flattening, and namespace extraction.
@@ -64,7 +66,12 @@ trait TranslationProcessingTrait
     /**
      * Read and flatten translations from a namespaced Lang directory
      */
-    protected function readFromDirectory(string $langDir, string $namespace, ?string $specificLocale = null): array
+    protected function readFromDirectory(
+        TranslationClient $client,
+        string $langDir,
+        string $namespace,
+        ?string $specificLocale = null
+    ): array
     {
         $locales = $specificLocale ? [$specificLocale] : $this->getLocalesFromDirectory($langDir);
 
@@ -92,7 +99,7 @@ trait TranslationProcessingTrait
 
                 $allTranslations = array_merge(
                     $allTranslations,
-                    $this->flattenTranslations($data, $locale, $namespacedGroup)
+                    $client->flattenTranslations($data, $locale, $namespacedGroup)
                 );
             }
         }
@@ -115,76 +122,11 @@ trait TranslationProcessingTrait
         return $locales;
     }
 
-    /**
-     * Flatten nested translation array
-     * Preserves arrays as JSON values (matching API behavior)
+    /*
+     * flattenTranslations() and isTranslatableArray() used to live here as
+     * near-copies of TranslationClient's. They had drifted — this one skipped
+     * empty values and TranslationClient's did not, so the two import commands
+     * behaved differently on the same lang file. Both now go through
+     * TranslationClient::flattenTranslations(), which is the only copy.
      */
-    protected function flattenTranslations(
-        array $data,
-        string $locale,
-        string $group,
-        string $prefix = ''
-    ): array {
-        $result = [];
-
-        foreach ($data as $key => $value) {
-            // Skip numeric keys (invalid)
-            if (is_numeric($key)) {
-                continue;
-            }
-
-            // Skip empty keys (invalid)
-            if (empty($key)) {
-                continue;
-            }
-
-            $fullKey = $prefix ? "{$prefix}.{$key}" : $key;
-
-            // Check if value is an associative array (has string keys)
-            $isAssociativeArray = is_array($value) && array_keys($value) !== range(0, count($value) - 1);
-
-            if ($isAssociativeArray && !$this->isTranslatableArray($value)) {
-                // Recursively flatten associative arrays with string keys
-                $result = array_merge(
-                    $result,
-                    $this->flattenTranslations($value, $locale, $group, $fullKey)
-                );
-            } else {
-
-                if($value === null || $value === '' || (is_array($value) && empty($value))) {
-                    continue;
-                }
-                // Apply app name prefix to group
-                $appPrefix = config('translation-client.app_name_prefix');
-                $finalGroup = $appPrefix ? "{$appPrefix}:{$group}" : $group;
-
-                // Preserve arrays (indexed or translatable) as values
-                // API will JSON encode them automatically
-                $result[] = [
-                    'locale' => $locale,
-                    'group' => $finalGroup,
-                    'key' => $fullKey,
-                    'value' => $value,
-                    'client' => config('translation-client.client', 'backend'),
-                    'is_active' => true,
-                ];
-            }
-        }
-
-        return $result;
-    }
-
-    /**
-     * Check if array should be treated as a translatable value (not flattened)
-     */
-    protected function isTranslatableArray(array $value): bool
-    {
-        // If all values are strings, it's likely a translatable array
-        foreach ($value as $item) {
-            if (!is_string($item)) {
-                return false;
-            }
-        }
-        return true;
-    }
 }

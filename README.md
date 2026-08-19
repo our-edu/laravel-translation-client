@@ -119,21 +119,6 @@ trans('messages.hello', ['name' => 'Ahmed'])
 
 ### Commands
 
-#### Sync Translations
-
-Manually fetch and cache translations:
-
-```bash
-# Sync all locales
-php artisan translations:sync
-
-# Sync specific locale
-php artisan translations:sync --locale=ar
-
-# Force refresh (clear cache first)
-php artisan translations:sync --force
-```
-
 #### Clear Cache
 
 Clear translation caches:
@@ -161,16 +146,25 @@ php artisan translations:import --locale=ar
 php artisan translations:import --path=/path/to/lang
 ```
 
-### Scheduled Sync
+### Keeping Translations Fresh
 
-Add to `app/Console/Kernel.php` to sync translations hourly:
+Nothing needs scheduling. Translations are fetched on first use and cached, and
+each cached bundle carries the version it was built from. That version is checked
+against the service's manifest on every read, so a bundle cannot go stale
+indefinitely.
 
-```php
-protected function schedule(Schedule $schedule): void
-{
-    $schedule->command('translations:sync')->hourly();
-}
-```
+**There is a lag, though, and it is worth knowing.** The manifest is itself cached
+for `manifest_ttl` — 300 seconds by default. Until that entry expires the version
+comparison is against a *stale* manifest, so it agrees with the cached bundle and
+serves it. An edit in the service therefore appears within `manifest_ttl`, not on
+the very next request.
+
+Measured against a real consuming app: a value created in the service was still
+absent immediately afterwards, and present once the manifest cache was cleared.
+
+Lower `TRANSLATION_MANIFEST_TTL` if you need edits to land faster — it costs one
+small request per locale per interval — or run `translations:clear-cache` to force
+it immediately.
 
 ### Middleware for Locale Detection
 

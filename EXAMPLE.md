@@ -154,20 +154,16 @@ protected $middlewareGroups = [
 ];
 ```
 
-### Scheduled Translation Sync
+### Keeping Translations Fresh
 
-In `app/Console/Kernel.php`:
+Nothing to schedule. A cached bundle carries the version it was built from, and
+that is checked against the service's manifest on every read, so it cannot go
+stale indefinitely.
 
-```php
-protected function schedule(Schedule $schedule): void
-{
-    // Sync translations every hour
-    $schedule->command('translations:sync')->hourly();
-    
-    // Or sync at specific times
-    $schedule->command('translations:sync')->dailyAt('03:00');
-}
-```
+The manifest is itself cached for `manifest_ttl` (300s by default), so an edit in
+the service appears within that window rather than on the very next request.
+Lower `TRANSLATION_MANIFEST_TTL` to shorten it, or run
+`translations:clear-cache` to force a refresh.
 
 ### Using the Facade
 
@@ -321,16 +317,11 @@ class TranslationTest extends TestCase
    TRANSLATION_BUNDLE_TTL=3600   # 1 hour
    ```
 
-4. **Schedule Translation Sync**:
-   ```bash
-   php artisan schedule:work
-   ```
-
-5. **Clear Caches on Deployment**:
+4. **Clear Caches on Deployment**:
    ```bash
    php artisan cache:clear
    php artisan config:cache
-   php artisan translations:sync
+   php artisan translations:clear-cache
    ```
 
 ### Docker Example
@@ -366,9 +357,10 @@ RUN php artisan config:cache
 RUN php artisan route:cache
 RUN php artisan view:cache
 
-# Sync translations on container start
-CMD php artisan translations:sync && php-fpm
+CMD php-fpm
 ```
+
+Translations are fetched on first use, so there is nothing to warm at start-up.
 
 ## Monitoring
 
@@ -410,9 +402,6 @@ public function boot()
 php artisan cache:clear
 php artisan translations:clear-cache
 php artisan config:cache
-
-# Force sync
-php artisan translations:sync --force
 ```
 
 ### Performance Issues
@@ -423,7 +412,7 @@ php artisan config:show translation-client.preload
 
 # Verify cache driver
 php artisan config:show cache.default
-
-# Monitor API response times
-php artisan translations:sync --locale=ar -v
 ```
+
+Enable `translation-client.logging` to see fetch timings for each manifest and
+bundle request.

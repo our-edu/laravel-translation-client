@@ -126,11 +126,22 @@ return [
     | Available Locales
     |--------------------------------------------------------------------------
     |
-    | The list of available locales to sync translations for
+    | The regional locale tags this app serves. Read by SetLocaleFromRequest,
+    | which uses it to decide whether to honour a requested locale.
+    |
+    | List **regional variants**, not bare languages. A bare tag still works —
+    | the service resolves `ar` by truncation, and the middleware matches it to
+    | the variant configured for that language — but requesting one caches under
+    | a different key than the variant it resolves to, so it costs an extra
+    | fetch for identical bytes.
+    |
+    | Trim this to the variants your tenants are actually assigned.
     |
     */
     'available_locales' => [
-        'ar',
-        'en',
+        'ar-SA',
+        'ar-EG',
+        'en-US',
+        'en-GB',
     ],
 ];

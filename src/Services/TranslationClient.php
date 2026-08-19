@@ -21,6 +21,9 @@ class TranslationClient
     private ?string $cacheStore;
     private bool $loggingEnabled;
 
+    /** @var string[] keys dropped by flattenTranslations for having no value */
+    private array $skippedKeys = [];
+
     public function __construct()
     {
         $this->baseUrl = rtrim(config('translation-client.service_url'), '/');
@@ -36,6 +39,12 @@ class TranslationClient
 
     /**
      * Check if translations need updating
+     *
+     * Stays keyed on the **requested** locale: this is the lookup that tells us
+     * which locale the service actually resolved to, so it cannot itself be
+     * keyed on the answer. The payload is small, so holding one per requested
+     * tag is cheap — bundles are where the duplication mattered, and those key
+     * on the resolved tag.
      */
     public function checkVersion(string $locale, ?string $client = null): array
     {
@@ -88,15 +97,22 @@ class TranslationClient
         // Apply app name prefix to groups
         $prefixedGroups = $groups ? array_map([$this, 'prefixGroup'], $groups) : null;
 
-        $cacheKey = $this->getBundleCacheKey($locale, $prefixedGroups, $client, $format);
+        // The manifest is read first, and unconditionally, because it carries
+        // the resolved locale that the bundle cache key is built from. It is
+        // itself cached for manifest_ttl, so this is a memory read on the warm
+        // path rather than an extra request.
+        $manifest = $this->checkVersion($locale, $client);
+        $resolvedLocale = $this->resolvedLocale($manifest, $locale);
+
+        $cacheKey = $this->getBundleCacheKey($resolvedLocale, $prefixedGroups, $client, $format);
+        $tags = $this->cacheTags($resolvedLocale);
 
         // Check if we have a cached version
-        $cached = $this->cache()->tags(['translations', "locale:{$locale}"])->get($cacheKey);
+        $cached = $this->cache()->tags($tags)->get($cacheKey);
         if ($cached) {
             // Verify version is still current
-            $manifest = $this->checkVersion($locale, $client);
             if (isset($cached['version']) && $cached['version'] === $manifest['version']) {
-                $this->log('debug', "Using cached bundle for locale: {$locale}");
+                $this->log('debug', "Using cached bundle for locale: {$resolvedLocale}");
                 return $cached['data'];
             }
         }
@@ -117,8 +133,18 @@ class TranslationClient
             if ($response->successful()) {
                 $data = $response->json();
 
+                // The bundle response carries resolved_locale too. Prefer it over
+                // the manifest's: if the two ever disagree, the bundle is the one
+                // describing the bytes being cached.
+                $bundleLocale = $this->resolvedLocale($data, $resolvedLocale);
+
+                if ($bundleLocale !== $resolvedLocale) {
+                    $cacheKey = $this->getBundleCacheKey($bundleLocale, $prefixedGroups, $client, $format);
+                    $tags = $this->cacheTags($bundleLocale);
+                }
+
                 // Cache the bundle
-                $this->cache()->tags(['translations', "locale:{$locale}"])->put($cacheKey, $data, $this->bundleTtl);
+                $this->cache()->tags($tags)->put($cacheKey, $data, $this->bundleTtl);
 
                 $this->log('info', "Bundle fetched successfully", [
                     'count' => $data['count'] ?? 0,
@@ -168,18 +194,73 @@ class TranslationClient
 
     /**
      * Clear all translation caches
+     *
+     * Callers pass the tag they asked for, not the one negotiation picked, and
+     * bundles are tagged with the resolved locale — so `clearCache('ar')` has to
+     * flush `locale:ar-SA` as well or it would evict the manifest and leave the
+     * bundle it describes behind.
+     *
+     * The resolved tag is read from the manifest cache without refetching. If
+     * the manifest has already expired there is nothing left to map through, and
+     * only the requested tag is flushed; the bundle still self-invalidates on
+     * its next version comparison, so the cost is a missed force-refresh rather
+     * than stale content.
      */
     public function clearCache(?string $locale = null): void
     {
-        if ($locale) {
-            // Clear specific locale
-            $this->log('info', "Clearing cache for locale: {$locale}");
-            $this->cache()->tags(['translations', "locale:{$locale}"])->flush();
-        } else {
-            // Clear all
+        if (! $locale) {
             $this->log('info', "Clearing all translation caches");
             $this->cache()->tags(['translations'])->flush();
+
+            return;
         }
+
+        $this->log('info', "Clearing cache for locale: {$locale}");
+
+        foreach ($this->cachedLocaleTags($locale) as $tag) {
+            $this->cache()->tags([$tag])->flush();
+        }
+
+        $this->cache()->tags(['translations', "locale:{$locale}"])->flush();
+    }
+
+    /**
+     * Every `locale:` tag a requested locale may have content filed under.
+     *
+     * @return string[]
+     */
+    private function cachedLocaleTags(string $locale): array
+    {
+        $tags = ["locale:{$locale}"];
+
+        foreach ($this->knownClients() as $client) {
+            $manifest = $this->cache()
+                ->tags(['translations', "locale:{$locale}"])
+                ->get($this->getManifestCacheKey($locale, $client));
+
+            if (! is_array($manifest)) {
+                continue;
+            }
+
+            $resolved = $this->resolvedLocale($manifest, $locale);
+
+            if (! in_array("locale:{$resolved}", $tags, true)) {
+                $tags[] = "locale:{$resolved}";
+            }
+        }
+
+        return $tags;
+    }
+
+    /**
+     * Clients a manifest may have been cached under: this app's configured one,
+     * plus the shared layer.
+     *
+     * @return array<int, string>
+     */
+    private function knownClients(): array
+    {
+        return array_values(array_unique([$this->client, 'backend', 'frontend', 'mobile']));
     }
 
     /**
@@ -212,9 +293,12 @@ class TranslationClient
 
             if ($response->successful()) {
                 $result = $response->json();
+                // `unchanged` is where most of a re-import lands: the service
+                // is insert-only, so a key it already holds is left alone.
                 $this->log('info', "Translations pushed successfully", [
                     'created' => $result['created'] ?? 0,
                     'updated' => $result['updated'] ?? 0,
+                    'unchanged' => $result['unchanged'] ?? 0,
                 ]);
                 return $result;
             }
@@ -303,7 +387,7 @@ class TranslationClient
     public function pushTranslationsForTenant(array $translations, ?int $tenantId): array
     {
         if (empty($translations)) {
-            return ['created' => 0, 'updated' => 0, 'total' => 0];
+            return ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'total' => 0];
         }
 
         $translations = array_map(static function (array $translation) use ($tenantId) {
@@ -317,8 +401,20 @@ class TranslationClient
     /**
      * Flatten nested translation array to flat structure
      * Preserves arrays as JSON values (matching API behavior)
+     *
+     * The single implementation. `TranslationProcessingTrait` used to carry a
+     * near-copy of this that diverged in one important way: it skipped empty
+     * values and this did not. The service's write API declares
+     * `translations.*.value` as `required`, and Laravel's `required` rejects
+     * null, `[]`, `''` **and** whitespace-only strings — so a single blank lang
+     * value made `translations:import` fail its whole batch with a 422 while
+     * `translations:import-namespaced` quietly dropped the key and succeeded.
+     *
+     * Skipping is the correct half of that pair: an override always carries a
+     * value, so a blank is nothing the service can store. Dropped keys are
+     * recorded rather than swallowed — see {@see takeSkippedKeys()}.
      */
-    private function flattenTranslations(array $data, string $locale, string $group, string $prefix = ''): array
+    public function flattenTranslations(array $data, string $locale, string $group, string $prefix = ''): array
     {
         $result = [];
 
@@ -344,25 +440,86 @@ class TranslationClient
                     $result,
                     $this->flattenTranslations($value, $locale, $group, $fullKey)
                 );
-            } else {
-                // Preserve arrays (indexed or translatable) as JSON
-                // This matches the API's behavior (lines 80-82 in TranslationWriteApiController)
-                $finalValue = $value;
-                if (is_array($value)) {
-                    $finalValue = $value; // API will JSON encode it
-                }
-                $result[] = [
-                    'locale' => $locale,
-                    'group' => $this->prefixGroup($group), // Apply app name prefix
-                    'key' => $fullKey,
-                    'value' => $finalValue,
-                    'client' => $this->client,
-                    'is_active' => true,
-                ];
+
+                continue;
             }
+
+            if ($this->isEmptyValue($value)) {
+                $this->skippedKeys[] = "{$locale} {$group}.{$fullKey}";
+
+                continue;
+            }
+
+            // Arrays (indexed or translatable) are preserved; the API JSON
+            // encodes them.
+            $result[] = [
+                'locale' => $locale,
+                'group' => $this->prefixGroup($group), // Apply app name prefix
+                'key' => $fullKey,
+                'value' => $value,
+                'client' => $this->client,
+                'is_active' => true,
+            ];
         }
 
         return $result;
+    }
+
+    /**
+     * Would the service refuse this value?
+     *
+     * Mirrors Laravel's `required`, which the write API applies to every value:
+     * null, an empty array, and any string that trims to nothing.
+     */
+    private function isEmptyValue(mixed $value): bool
+    {
+        if ($value === null) {
+            return true;
+        }
+
+        if (is_array($value)) {
+            return $value === [];
+        }
+
+        return is_string($value) && trim($value) === '';
+    }
+
+    /**
+     * Keys dropped for having no value, since the last time this was called.
+     *
+     * Reading clears the list, so a caller reports each key once.
+     *
+     * @return string[]
+     */
+    public function takeSkippedKeys(): array
+    {
+        $skipped = $this->skippedKeys;
+        $this->skippedKeys = [];
+
+        return $skipped;
+    }
+
+    /**
+     * Log what an import discarded, and clear the record.
+     *
+     * Dropping blank values is what lets an import containing one empty lang
+     * string succeed at all — the service refuses them. Dropping them
+     * *invisibly* is how a key goes missing and nobody finds out, so this logs
+     * unconditionally rather than through this package's opt-in channel.
+     */
+    public function reportSkippedKeys(): void
+    {
+        $skipped = $this->takeSkippedKeys();
+
+        if ($skipped === []) {
+            return;
+        }
+
+        Log::warning(
+            '[TranslationClient] Skipped ' . count($skipped) . ' translation key(s) with an empty value; '
+            . 'the service rejects blanks, so they were not pushed.',
+            ['total' => count($skipped), 'keys' => array_slice($skipped, 0, 50)]
+        );
     }
 
     /**
@@ -403,6 +560,11 @@ class TranslationClient
 
     /**
      * Generate bundle cache key
+     *
+     * `$locale` here is the **resolved** tag, not the requested one. Any number
+     * of requested tags can negotiate to the same locale — `ar`, `ar-AE` and
+     * `ar-EG` all resolve to `ar-SA` for a tenant assigned it — and keying on
+     * the request would store one identical copy per spelling, refetching each.
      */
     private function getBundleCacheKey(string $locale, ?array $groups, string $client, string $format): string
     {
@@ -413,13 +575,49 @@ class TranslationClient
     }
 
     /**
+     * The locale the service actually served, per a manifest or bundle response.
+     *
+     * Falls back to what was asked for when the field is absent, which covers
+     * both an older service build and the offline default manifest.
+     */
+    private function resolvedLocale(array $response, string $requested): string
+    {
+        $resolved = $response['resolved_locale'] ?? null;
+
+        return is_string($resolved) && $resolved !== '' ? $resolved : $requested;
+    }
+
+    /**
+     * Cache tags for a bundle, which are always the *resolved* locale's.
+     *
+     * The tag set must not vary by requested locale. Laravel namespaces a
+     * tagged entry by its whole tag set, so tagging `['translations',
+     * 'locale:ar-SA', 'locale:ar']` and `['translations', 'locale:ar-SA',
+     * 'locale:ar-AE']` produces two namespaces and two copies — reintroducing
+     * exactly the duplication this milestone removes. Reaching a bundle by the
+     * tag a caller asked for is {@see clearCache()}'s job instead.
+     *
+     * @return string[]
+     */
+    private function cacheTags(string $resolved): array
+    {
+        return ['translations', "locale:{$resolved}"];
+    }
+
+    /**
      * Get default manifest when API is unavailable
+     *
+     * Echoes both locale fields rather than omitting them: callers that read
+     * `resolved_locale` must not start getting null exactly when the service is
+     * unreachable, which is the moment the fallback exists for.
      */
     private function getDefaultManifest(string $locale, string $client): array
     {
         return [
             'tenant' => $this->getTenantId(),
             'locale' => $locale,
+            'requested_locale' => $locale,
+            'resolved_locale' => $locale,
             'client' => $client,
             'version' => 1,
             'etag' => 'W/"default-1"',

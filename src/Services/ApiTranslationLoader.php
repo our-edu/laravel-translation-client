@@ -85,15 +85,39 @@ class ApiTranslationLoader implements LoaderContract
 
         if ($namespace && $namespace !== '*') {
             $path = $this->namespaces[$namespace] ?? $path;
-            $filePath = "{$path}/{$locale}/{$group}.php";
-        } else {
-            $filePath = "{$path}/{$locale}/{$group}.php";
         }
 
-        if ($this->files->exists($filePath)) {
-            return require $filePath;
+        // A regional tag falls back to its language directory. Apps ship
+        // `lang/ar/`, not `lang/ar-SA/`, so building the path from the tag alone
+        // meant the local file layer silently contributed nothing for every
+        // regional locale — and since the API result is merged *over* these
+        // files, that quietly dropped every key the service does not return.
+        //
+        // The exact tag is still tried first, so an app that does keep
+        // `lang/ar-SA/` gets it.
+        foreach ($this->localeDirectories($locale) as $directory) {
+            $filePath = "{$path}/{$directory}/{$group}.php";
+
+            if ($this->files->exists($filePath)) {
+                return require $filePath;
+            }
         }
 
         return [];
+    }
+
+    /**
+     * Directories to try for a locale, most specific first: `ar-SA`, then `ar`.
+     *
+     * @return string[]
+     */
+    private function localeDirectories($locale): array
+    {
+        $locale = (string) $locale;
+        $language = explode('-', str_replace('_', '-', $locale), 2)[0];
+
+        return $language !== '' && $language !== $locale
+            ? [$locale, $language]
+            : [$locale];
     }
 }
