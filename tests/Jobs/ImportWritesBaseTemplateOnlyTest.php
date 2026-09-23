@@ -160,4 +160,21 @@ class ImportWritesBaseTemplateOnlyTest extends TestCase
             );
         }
     }
+
+    public function test_import_commands_skip_all_work_when_the_client_is_disabled(): void
+    {
+        \Illuminate\Support\Facades\Bus::fake();
+        $this->app['config']->set('translation-client.enabled', false);
+
+        foreach (['translations:import', 'translations:import-namespaced'] as $command) {
+            $this->artisan($command, [
+                '--path' => '/path/that/does/not/exist',
+                '--sync' => true,
+            ])->assertExitCode(0)
+                ->expectsOutput('Translation client is disabled; skipping import.');
+        }
+
+        Bus::assertNothingDispatched();
+        $this->assertEmpty($this->pushes);
+    }
 }

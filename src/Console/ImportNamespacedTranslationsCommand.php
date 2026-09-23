@@ -31,6 +31,12 @@ class ImportNamespacedTranslationsCommand extends Command
      */
     public function handle(): int
     {
+        if (! config('translation-client.enabled', false)) {
+            $this->info('Translation client is disabled; skipping import.');
+
+            return self::SUCCESS;
+        }
+
         $this->info('Importing namespaced translations to Translation Service...');
         $this->newLine();
 

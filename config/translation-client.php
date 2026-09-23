@@ -3,6 +3,18 @@
 return [
     /*
     |--------------------------------------------------------------------------
+    | Translation Client
+    |--------------------------------------------------------------------------
+    |
+    | Enable the package's automatic API translation integration and import
+    | commands. It is disabled by default so installing the package does not
+    | make requests to the fallback service URL.
+    |
+    */
+    'enabled' => env('TRANSLATION_CLIENT_ENABLED', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Translation Service URL
     |--------------------------------------------------------------------------
     |

@@ -44,6 +44,7 @@ Add the following to your `.env` file:
 
 ```env
 TRANSLATION_SERVICE_URL=https://your-translation-service.com
+TRANSLATION_CLIENT_ENABLED=true
 TRANSLATION_PRELOAD=true
 TRANSLATION_CLIENT=backend
 ```
@@ -62,6 +63,9 @@ All configuration options are in `config/translation-client.php`:
 
 ```php
 return [
+    // Enable API translation integration and import commands (disabled by default)
+    'enabled' => env('TRANSLATION_CLIENT_ENABLED', false),
+
     // Translation service base URL
     'service_url' => env('TRANSLATION_SERVICE_URL', 'http://localhost'),
     

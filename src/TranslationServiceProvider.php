@@ -48,6 +48,10 @@ class TranslationServiceProvider extends ServiceProvider
             ]);
         }
 
+        if (! config('translation-client.enabled', false)) {
+            return;
+        }
+
         // Replace Laravel's translation loader AFTER all providers have booted
         // This ensures our loader takes precedence
         $this->app->booted(function () {
