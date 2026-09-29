@@ -6,6 +6,7 @@ namespace OurEdu\TranslationClient\Tests\Services;
 
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use OurEdu\TranslationClient\Services\TranslationClient;
 use OurEdu\TranslationClient\Tests\TestCase;
 
@@ -17,17 +18,23 @@ use OurEdu\TranslationClient\Tests\TestCase;
  */
 class IncludeMetaTest extends TestCase
 {
-    private function fakeService(): void
+    private function fakeService(array $meta = []): void
     {
-        Http::fake(function (Request $request) {
+        Http::fake(function (Request $request) use ($meta) {
             if (str_contains($request->url(), '/manifest')) {
                 return Http::response(['version' => 1]);
             }
 
-            return Http::response([
+            $body = [
                 'version' => 1,
                 'data' => ['messages' => ['greeting' => 'HI']],
-            ]);
+            ];
+
+            if ($meta !== []) {
+                $body['meta'] = $meta;
+            }
+
+            return Http::response($body);
         });
     }
 
@@ -64,5 +71,34 @@ class IncludeMetaTest extends TestCase
 
             return ($query['include_meta'] ?? null) === '1';
         });
+    }
+
+    public function test_meta_is_logged_for_debugging_when_present(): void
+    {
+        $this->app['config']->set('translation-client.include_meta', true);
+        $this->app['config']->set('translation-client.logging.enabled', true);
+
+        $meta = ['messages.greeting' => ['scope' => 'global', 'locale' => 'en']];
+        $this->fakeService($meta);
+
+        Log::shouldReceive('channel')->andReturnSelf();
+        Log::shouldReceive('debug')
+            ->once()
+            ->withArgs(fn (string $message, array $context) => $context['meta'] === $meta);
+        Log::shouldReceive('info'); // the existing "Bundle fetched successfully" line
+
+        (new TranslationClient())->fetchBundle('en', ['messages']);
+    }
+
+    public function test_nothing_is_logged_when_include_meta_is_off(): void
+    {
+        $this->app['config']->set('translation-client.logging.enabled', true);
+        $this->fakeService();
+
+        Log::shouldReceive('channel')->andReturnSelf();
+        Log::shouldReceive('debug')->withArgs(fn (string $message) => str_contains($message, 'metadata'))->never();
+        Log::shouldReceive('info');
+
+        (new TranslationClient())->fetchBundle('en', ['messages']);
     }
 }

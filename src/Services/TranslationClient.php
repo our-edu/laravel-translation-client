@@ -154,6 +154,14 @@ class TranslationClient
                     'version' => $data['version'] ?? null,
                 ]);
 
+                // include_meta is a debugging switch — surface what it bought,
+                // since fetchBundle() itself only ever returns translations.
+                if ($this->includeMeta && isset($data['meta'])) {
+                    $this->log('debug', "Bundle resolution metadata for locale: {$bundleLocale}", [
+                        'meta' => $data['meta'],
+                    ]);
+                }
+
                 return $data['data'] ?? [];
             }
 
