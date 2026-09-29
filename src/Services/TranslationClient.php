@@ -20,6 +20,7 @@ class TranslationClient
     private bool $fallbackOnError;
     private ?string $cacheStore;
     private bool $loggingEnabled;
+    private bool $includeMeta;
 
     /** @var string[] keys dropped by flattenTranslations for having no value */
     private array $skippedKeys = [];
@@ -35,6 +36,7 @@ class TranslationClient
         $this->fallbackOnError = config('translation-client.fallback_on_error', true);
         $this->cacheStore = config('translation-client.cache_store');
         $this->loggingEnabled = config('translation-client.logging.enabled', false);
+        $this->includeMeta = (bool) config('translation-client.include_meta', false);
     }
 
     /**
@@ -128,6 +130,7 @@ class TranslationClient
                     'groups' => $prefixedGroups ? implode(',', $prefixedGroups) : null,
                     'client' => $client,
                     'format' => $format,
+                    'include_meta' => $this->includeMeta ? 1 : null,
                 ]);
 
             if ($response->successful()) {
