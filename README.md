@@ -84,7 +84,10 @@ return [
     
     // Cache store (null = default)
     'cache_store' => env('TRANSLATION_CACHE_STORE'),
-    
+
+    // Add include_meta=1 to bundle requests — a debugging aid, off by default
+    'include_meta' => env('TRANSLATION_INCLUDE_META', false),
+
     // Logging
     'logging' => [
         'enabled' => env('TRANSLATION_LOGGING', false),

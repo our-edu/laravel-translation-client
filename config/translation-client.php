@@ -109,6 +109,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Include Resolution Metadata
+    |--------------------------------------------------------------------------
+    |
+    | Adds include_meta=1 to bundle requests, so the service's response carries
+    | a `meta` block naming which layer each key resolved from — useful when
+    | debugging why a value differs from what's expected. Off by default: it's
+    | a debugging aid, not needed for normal use, and the service caches it as
+    | a distinct entry from the same request without the flag.
+    |
+    */
+    'include_meta' => env('TRANSLATION_INCLUDE_META', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Auto-Register Namespaces
     |--------------------------------------------------------------------------
     |
