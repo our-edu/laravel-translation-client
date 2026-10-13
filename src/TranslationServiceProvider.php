@@ -55,6 +55,15 @@ class TranslationServiceProvider extends ServiceProvider
         // Replace Laravel's translation loader AFTER all providers have booted
         // This ensures our loader takes precedence
         $this->app->booted(function () {
+            // Illuminate\Translation\TranslationServiceProvider is deferred and
+            // provides() both 'translator' and 'translation.loader'. The first
+            // make() call against either abstract lazily loads it, which
+            // re-registers the stock FileLoader/Translator bindings. If that
+            // happens *after* we rebind below, it silently overwrites us back
+            // to the stock loader. Resolving 'translator' once here forces that
+            // deferred load up front, so our rebind afterward is the last word.
+            $this->app->make('translator');
+
             $this->app->scoped('translation.loader', function ($app) {
                 $client = $app->make(TranslationClient::class);
                 return new ApiTranslationLoader(
@@ -64,7 +73,7 @@ class TranslationServiceProvider extends ServiceProvider
                 );
             });
 
-            $this->app->scoped('translator' , function ($app){
+            $this->app->scoped('translator', function ($app) {
                 $translator = new Translator(
                     $app->make('translation.loader'),
                     $app->getLocale()
@@ -72,6 +81,11 @@ class TranslationServiceProvider extends ServiceProvider
                 $translator->setFallback($app->config['app.fallback_locale'] ?? 'en');
                 return $translator;
             });
+
+            // Already-resolved singletons aren't replaced by a new binding alone;
+            // without forgetting them the stock Translator/FileLoader stay bound.
+            $this->app->forgetInstance('translation.loader');
+            $this->app->forgetInstance('translator');
 
             // Force re-resolve the validator to use new translator
             $this->app->forgetInstance('validator');
